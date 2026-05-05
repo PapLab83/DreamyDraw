@@ -2,12 +2,16 @@ import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # Провайдеры (mock или реальные)
+    # Провайдеры (mock или openai/dalle)
     LLM_PROVIDER: str = "mock"
     IMAGE_PROVIDER: str = "mock"
     
-    # API Ключи (будут в .env)
-    OPENAI_API_KEY: str = ""
+    # GPTunnel / OpenAI настройки
+    GPTTUNNEL_API_KEY: str = ""
+    GPTTUNNEL_BASE_URL: str = "https://gptunnel.ru/v1"
+    
+    LLM_MODEL: str = "gpt-4o-mini"
+    IMAGE_MODEL: str = "dall-e-3"
     
     # Пути
     OUTPUT_DIR: str = "output"

@@ -1,4 +1,5 @@
 import os
+from typing import List, Optional
 from src.models.schemas import GenerationRequest, SessionState, StoryItem, WorkMode
 from src.providers.base import BaseLLMProvider, BaseImageProvider
 from src.storage.json_storage import JSONStorage
@@ -38,8 +39,10 @@ class Orchestrator:
             # Шаг 1: Генерация текста
             if not story.text:
                 prompt = self.prompt_builder.build_text_prompt(request)
-                story.text = self.llm.generate_text(prompt)
-                story.questions = self.llm.generate_questions(story.text)
+                raw_response = self.llm.generate_text(prompt)
+                
+                # Парсинг ответа (Текст истории: ... Вопросы: ...)
+                story.text, story.questions = self._parse_llm_response(raw_response)
                 self.storage.save_session(session)
 
             # Шаг 2: Режим проверки
@@ -61,6 +64,22 @@ class Orchestrator:
             self.storage.save_session(session)
 
         return session
+
+    def _parse_llm_response(self, text: str):
+        """Парсит ответ от LLM согласно заданному формату"""
+        story_part = ""
+        questions = []
+        
+        if "Текст истории:" in text:
+            parts = text.split("Вопросы:")
+            story_part = parts[0].replace("Текст истории:", "").strip()
+            if len(parts) > 1:
+                q_list = parts[1].strip().split("\n")
+                questions = [q.strip(" 1234567890. -") for q in q_list if q.strip()]
+        else:
+            story_part = text
+            
+        return story_part, questions
 
     def confirm_story(self, session_id: str, index: int) -> SessionState:
         session = self.storage.get_session(session_id)

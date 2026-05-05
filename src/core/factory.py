@@ -2,21 +2,19 @@ from typing import Dict, Type
 from src.providers.base import BaseLLMProvider, BaseImageProvider
 from src.providers.llm_mock import LLMMockProvider
 from src.providers.image_mock import ImageMockProvider
-
-# Здесь в будущем будут импорты реальных провайдеров
-# from src.providers.openai_provider import OpenAIProvider
+from src.providers.gptunnel_provider import GPTunnelLLMProvider, GPTunnelImageProvider
 
 class ProviderFactory:
     # Реестр LLM провайдеров
     _llm_registry: Dict[str, Type[BaseLLMProvider]] = {
         "mock": LLMMockProvider,
-        # "openai": OpenAIProvider,
+        "gptunnel": GPTunnelLLMProvider,
     }
 
     # Реестр Image провайдеров
     _image_registry: Dict[str, Type[BaseImageProvider]] = {
         "mock": ImageMockProvider,
-        # "dalle": DalleProvider,
+        "gptunnel": GPTunnelImageProvider,
     }
 
     @classmethod
