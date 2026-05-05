@@ -2,17 +2,20 @@ import os
 from src.models.schemas import GenerationRequest, SessionState, StoryItem, WorkMode
 from src.providers.base import BaseLLMProvider, BaseImageProvider
 from src.storage.json_storage import JSONStorage
+from src.core.prompt_builder import PromptBuilder
 
 class Orchestrator:
     def __init__(
         self, 
         llm_provider: BaseLLMProvider, 
         image_provider: BaseImageProvider,
-        storage: JSONStorage
+        storage: JSONStorage,
+        prompt_builder: PromptBuilder = None
     ):
         self.llm = llm_provider
         self.image = image_provider
         self.storage = storage
+        self.prompt_builder = prompt_builder or PromptBuilder()
 
     def start_session(self, request: GenerationRequest) -> SessionState:
         session = SessionState(request=request)
@@ -34,7 +37,7 @@ class Orchestrator:
             
             # Шаг 1: Генерация текста
             if not story.text:
-                prompt = f"Напиши историю про {request.topic} в режиме {request.truth_mode} и стиле {request.text_style}"
+                prompt = self.prompt_builder.build_text_prompt(request)
                 story.text = self.llm.generate_text(prompt)
                 story.questions = self.llm.generate_questions(story.text)
                 self.storage.save_session(session)
@@ -48,7 +51,7 @@ class Orchestrator:
             if not story.image_path:
                 image_filename = f"story_{i}.png"
                 image_path = os.path.join("output", session.session_id, image_filename)
-                prompt = f"Нарисуй картинку для истории: {story.text} в стиле {request.image_style}"
+                prompt = self.prompt_builder.build_image_prompt(story.text, request.image_style)
                 story.image_path = self.image.generate_image(prompt, story.text, image_path)
                 self.storage.save_session(session)
 

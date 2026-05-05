@@ -1,18 +1,22 @@
 from src.utils.cli_parser import get_cli_parser, parse_count
 from src.models.schemas import GenerationRequest, TruthMode, TextStyle, ImageStyle, WorkMode
 from src.core.orchestrator import Orchestrator
-from src.providers.llm_mock import LLMMockProvider
-from src.providers.image_mock import ImageMockProvider
+from src.core.factory import ProviderFactory
 from src.storage.json_storage import JSONStorage
+from src.config.settings import settings
 
 def main():
     parser = get_cli_parser()
     args = parser.parse_args()
 
-    # Инициализация
-    storage = JSONStorage()
-    llm = LLMMockProvider()
-    image = ImageMockProvider()
+    # Инициализация через Фабрику и Настройки
+    storage = JSONStorage(base_dir=settings.OUTPUT_DIR)
+    
+    # Можно переопределить провайдера через аргумент командной строки в будущем,
+    # а пока берем из настроек (.env или дефолт)
+    llm = ProviderFactory.get_llm_provider(settings.LLM_PROVIDER)
+    image = ProviderFactory.get_image_provider(settings.IMAGE_PROVIDER)
+    
     orchestrator = Orchestrator(llm, image, storage)
 
     if args.session:
