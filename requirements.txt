@@ -1,8 +1,13 @@
 annotated-types==0.7.0
+iniconfig==2.3.0
+packaging==26.2
+pluggy==1.6.0
 portalocker==3.2.0
 pydantic==2.13.3
 pydantic-settings==2.14.0
 pydantic_core==2.46.3
+Pygments==2.20.0
+pytest==9.0.3
 python-dotenv==1.2.2
 PyYAML==6.0.3
 typing-inspection==0.4.2
