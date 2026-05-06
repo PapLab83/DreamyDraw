@@ -61,17 +61,21 @@ class PromptBuilder:
         style_path = os.path.join(self.prompts_dir, "image", "styles", style_file)
         style_instr = self._extract_prompt_block(style_path)
         
-        # Если базовый шаблон пуст, используем фолбэк
+        # Если базовый шаблон пуст, используем жесткий фолбэк
         if not base_template:
             return f"Create a child-friendly illustration for this story. Style: {image_style}. {style_instr} Story: {story_text}"
             
         # Композиция промпта для картинки
-        # Предполагаем, что в базовом шаблоне есть места для вставок {style_instr} и {story_text}
-        try:
-            return base_template.format(style_instr=style_instr, story_text=story_text, image_style=image_style)
-        except (KeyError, IndexError):
-            # Если format не сработал из-за несовпадения ключей в MD
-            return f"{base_template}\n\nSTYLE DETAILS: {style_instr}\n\nSTORY: {story_text}"
+        # Мы просто склеиваем блоки, чтобы не зависеть от наличия {placeholder} внутри MD файлов
+        final_parts = [
+            base_template,
+            f"ВИЗУАЛЬНЫЙ СТИЛЬ: {image_style}",
+            f"ДЕТАЛИ СТИЛЯ: {style_instr}" if style_instr else "",
+            f"СЮЖЕТ ДЛЯ ОТРИСОВКИ: {story_text}"
+        ]
+        
+        # Очищаем от пустых строк и склеиваем
+        return "\n\n".join([p for p in final_parts if p])
 
     def _map_truth_mode_file(self, mode: TruthMode) -> str:
         mapping = {

@@ -55,6 +55,9 @@ class Orchestrator:
                 image_filename = f"story_{i}.png"
                 image_path = os.path.join("output", session.session_id, image_filename)
                 prompt = self.prompt_builder.build_image_prompt(story.text, request.image_style)
+                
+                print(f"\n[DEBUG] Финальный промпт для картинки:\n{prompt}\n")
+                
                 story.image_path = self.image.generate_image(prompt, story.text, image_path)
                 self.storage.save_session(session)
 

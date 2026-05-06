@@ -64,20 +64,25 @@ class GPTunnelMediaProvider(BaseImageProvider):
         image_url = None
 
         while attempt < max_attempts:
-            res = requests.post(result_url, headers=headers, json={"task_id": task_id})
-            res.raise_for_status()
-            res_data = res.json()
-            
-            status = res_data.get("status")
-            if status == "done":
-                image_url = res_data.get("url")
-                break
-            elif status == "error":
-                raise ValueError(f"Ошибка генерации на стороне сервера: {res_data}")
-            
-            print(f"Статус: {status}... ждем 5 сек")
-            time.sleep(5)
-            attempt += 1
+            try:
+                res = requests.post(result_url, headers=headers, json={"task_id": task_id}, timeout=10)
+                res.raise_for_status()
+                res_data = res.json()
+                
+                status = res_data.get("status")
+                if status == "done":
+                    image_url = res_data.get("url")
+                    break
+                elif status == "error" or status == "failed":
+                    raise ValueError(f"Ошибка генерации на стороне сервера (статус: {status}): {res_data}")
+                
+                print(f"Статус: {status}... ждем 7 сек")
+                time.sleep(7)
+                attempt += 1
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                print(f"Ошибка соединения при проверке статуса: {e}. Пробую еще раз через 10 сек...")
+                time.sleep(10)
+                attempt += 1
 
         if not image_url:
             raise TimeoutError("Превышено время ожидания генерации изображения.")
