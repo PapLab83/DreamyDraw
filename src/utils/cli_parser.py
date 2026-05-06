@@ -1,13 +1,14 @@
 import argparse
 import re
 from src.models.schemas import TruthMode, TextStyle, ImageStyle, WorkMode
+from src.config.settings import settings
 
 def parse_count(topic: str) -> int:
     # Простой поиск чисел в строке
     match = re.search(r'\d+', topic)
     if match:
         return int(match.group())
-    return 3
+    return settings.DEFAULT_COUNT
 
 def get_cli_parser():
     parser = argparse.ArgumentParser(description="DreamyDraw CLI Prototype")

@@ -3,6 +3,8 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 import uuid
 
+from src.config.settings import settings
+
 class TruthMode(str, Enum):
     TRUTH = "Правда"
     MYTH = "Миф"
@@ -36,7 +38,7 @@ class GenerationRequest(BaseModel):
     text_style: TextStyle = TextStyle.GENTLE
     image_style: ImageStyle = ImageStyle.CARTOON
     work_mode: WorkMode = WorkMode.FAST
-    count: int = 3
+    count: int = settings.DEFAULT_COUNT
 
 class SessionState(BaseModel):
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "gpt-4o-mini"
     IMAGE_MODEL: str = "dall-e-3"
     
+    # Дефолтные значения
+    DEFAULT_COUNT: int = 1
+    
     # Пути
     OUTPUT_DIR: str = "output"
     PROMPTS_DIR: str = "src/prompts"
