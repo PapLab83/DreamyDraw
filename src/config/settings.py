@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     
     # Пути
     OUTPUT_DIR: str = "output"
-    PROMPTS_DIR: str = "src/prompts"
+    PROMPTS_DIR: str = "docs/03_PROMPTS"
     MOCKS_DIR: str = "assets/mocks"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

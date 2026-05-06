@@ -70,14 +70,41 @@ class Orchestrator:
         story_part = ""
         questions = []
         
-        if "Текст истории:" in text:
-            parts = text.split("Вопросы:")
-            story_part = parts[0].replace("Текст истории:", "").strip()
-            if len(parts) > 1:
-                q_list = parts[1].strip().split("\n")
-                questions = [q.strip(" 1234567890. -") for q in q_list if q.strip()]
+        # Маркеры для поиска (в порядке приоритета)
+        story_markers = ["Текст истории:", "История:"]
+        question_markers = ["Вопросы:"]
+        
+        # Находим начало блока вопросов
+        q_start = -1
+        for q_m in question_markers:
+            q_start = text.find(q_m)
+            if q_start != -1:
+                break
+        
+        if q_start != -1:
+            # Извлекаем часть с историей
+            full_story_part = text[:q_start].strip()
+            # Убираем заголовок "История:" или "Текст истории:"
+            for s_m in story_markers:
+                if s_m in full_story_part:
+                    full_story_part = full_story_part.replace(s_m, "").strip()
+                    break
+            story_part = full_story_part
+            
+            # Извлекаем вопросы
+            q_block = text[q_start:].strip()
+            for q_m in question_markers:
+                q_block = q_block.replace(q_m, "").strip()
+            
+            q_list = q_block.split("\n")
+            questions = [q.strip(" 1234567890. -") for q in q_list if q.strip()]
         else:
+            # Если маркера вопросов нет, пробуем хотя бы вычистить заголовок истории
             story_part = text
+            for s_m in story_markers:
+                if s_m in story_part:
+                    story_part = story_part.replace(s_m, "").strip()
+                    break
             
         return story_part, questions
 

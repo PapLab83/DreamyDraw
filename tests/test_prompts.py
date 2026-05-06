@@ -12,7 +12,5 @@ def test_prompt_building():
     prompt = builder.build_text_prompt(request)
     
     assert "белка" in prompt
-    assert "РЕЖИМ:" in prompt
-    assert "ФОРМАТ:" in prompt
-    # Проверка, что подставился именно текст из fairy_tale, а не truth
-    assert "фантастическую" in prompt 
+    assert "DreamyDraw" in prompt # Из BASE_INSTRUCTION.md
+    assert "СКАЗКА" in prompt      # Из FAIRY_TALE.md
