@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     GPTTUNNEL_BASE_URL: str = "https://gptunnel.ru/v1"
     
     LLM_MODEL: str = "gpt-4o-mini"
-    IMAGE_MODEL: str = "nano-banana" # dall-e-3, nano-banana
+    IMAGE_MODEL: str = "nano-banana-2" # dall-e-3, nano-banana, nano-banana-2
     
     # Дефолтные значения
     DEFAULT_COUNT: int = 1
