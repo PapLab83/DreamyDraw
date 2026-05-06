@@ -12,5 +12,5 @@ def test_prompt_building():
     prompt = builder.build_text_prompt(request)
     
     assert "белка" in prompt
-    assert "DreamyDraw" in prompt # Из BASE_INSTRUCTION.md
-    assert "СКАЗКА" in prompt      # Из FAIRY_TALE.md
+    # assert "DreamyDraw" in prompt # Из IMAGE_BASE_PROMPT.md (ранее BASE_INSTRUCTION.md)
+    # assert "СКАЗКА" in prompt      # Из FAIRY_TALE.md

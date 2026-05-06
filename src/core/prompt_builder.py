@@ -28,7 +28,7 @@ class PromptBuilder:
 
     def build_text_prompt(self, request: GenerationRequest) -> str:
         # 1. Базовая инструкция
-        base_path = os.path.join(self.prompts_dir, "text", "BASE_INSTRUCTION.md")
+        base_path = os.path.join(self.prompts_dir, "text", "TEXT_BASE_PROMPT.md")
         base_instr = self._extract_prompt_block(base_path)
         
         # 2. Режим правдивости
