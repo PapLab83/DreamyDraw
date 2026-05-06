@@ -35,7 +35,7 @@ class StoryItem(BaseModel):
 class GenerationRequest(BaseModel):
     topic: str
     truth_mode: TruthMode = TruthMode.TRUTH
-    text_style: TextStyle = TextStyle.GENTLE
+    text_style: TextStyle = TextStyle.EDUCATIONAL
     image_style: ImageStyle = ImageStyle.CARTOON
     work_mode: WorkMode = WorkMode.FAST
     count: int = settings.DEFAULT_COUNT
