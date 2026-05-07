@@ -30,25 +30,25 @@ class PromptBuilder:
         instr = self._extract_prompt_block(path)
         return f"{instr}\n\nТЕМА: {topic}\nВЫБРАННЫЙ РЕЖИМ: {truth_mode}"
 
-    def build_series_plan_prompt(self, topic: str, count: int, feedback: str = None) -> str:
+    def build_series_plan_prompt(self, topic: str, count: int) -> str:
         path = os.path.join(self.prompts_dir, "text", "SERIES_PLANNER.md")
         instr = self._extract_prompt_block(path)
-        
-        correction = ""
-        if feedback:
-            correction = f"## ПРЕДЫДУЩИЙ ПЛАН БЫЛ ОТКЛОНЕН!\nПричина: {feedback}\nПожалуйста, исправь темы согласно замечаниям."
-            
-        instr = instr.replace("{topic}", topic).replace("{count}", str(count)).replace("{correction_block}", correction)
+        instr = instr.replace("{topic}", topic).replace("{count}", str(count)).replace("{correction_block}", "")
         return instr
 
-    def build_plan_validator_prompt(self, plan: list, context: str, truth_mode: str) -> str:
+    def build_plan_validator_prompt(self, full_plan_json: str, context: str, truth_mode: str) -> str:
         path = os.path.join(self.prompts_dir, "text", "PLAN_VALIDATOR.md")
         instr = self._extract_prompt_block(path)
         truth_path = os.path.join(self.prompts_dir, "text", "truth_modes", f"{self._map_truth_mode_file_by_val(truth_mode)}.md")
         truth_rules = self._extract_prompt_block(truth_path)
         instr = instr.replace("{truth_mode}", truth_mode).replace("{truth_mode_rules}", truth_rules)
-        plan_text = "\n".join([f"- {item}" for item in plan])
-        return f"{instr}\n\nПЛАН ДЛЯ ПРОВЕРКИ:\n{plan_text}\n\nКОНТЕКСТ:\n{context}"
+        return f"{instr}\n\nПЛАН ДЛЯ ПРОВЕРКИ (JSON):\n{full_plan_json}\n\nГЛОБАЛЬНЫЙ КОНТЕКСТ:\n{context}"
+
+    def build_plan_refine_prompt(self, current_plan_json: str, validator_feedback_json: str, truth_mode: str) -> str:
+        path = os.path.join(self.prompts_dir, "text", "PLAN_REFINER.md")
+        instr = self._extract_prompt_block(path)
+        instr = instr.replace("{truth_mode}", truth_mode)
+        return f"{instr}\n\nТЕКУЩИЙ ПЛАН (JSON):\n{current_plan_json}\n\nЗАМЕЧАНИЯ ВАЛИДАТОРА (JSON):\n{validator_feedback_json}"
 
     def _map_truth_mode_file_by_val(self, mode_val: str) -> str:
         if mode_val == "Правда": return "TRUTH"
@@ -56,7 +56,7 @@ class PromptBuilder:
         if mode_val == "Сказка": return "FAIRY_TALE"
         return "TRUTH"
 
-    def build_text_prompt(self, request: GenerationRequest) -> str:
+    def build_text_prompt(self, request: GenerationRequest, global_context: str = "") -> str:
         base_path = os.path.join(self.prompts_dir, "text", "TEXT_BASE_PROMPT.md")
         base_instr = self._extract_prompt_block(base_path)
         truth_file = self._map_truth_mode_file(request.truth_mode)
@@ -66,10 +66,11 @@ class PromptBuilder:
         style_path = os.path.join(self.prompts_dir, "text", "styles", style_file)
         style_instr = self._extract_prompt_block(style_path)
         prompt_parts = []
+        if global_context: prompt_parts.append(f"ОБЩИЙ КОНТЕКСТ СЕРИИ: {global_context}")
         if base_instr: prompt_parts.append(base_instr)
         if truth_instr: prompt_parts.append(truth_instr)
         if style_instr: prompt_parts.append(style_instr)
-        prompt_parts.append(f"ТЕМА ПОЛЬЗОВАТЕЛЯ: {request.topic}")
+        prompt_parts.append(f"ТЕМА ЭТОЙ ИСТОРИИ: {request.topic}")
         return "\n\n".join(prompt_parts)
 
     def build_image_prompt(self, story_text: str, image_style: str) -> str:
