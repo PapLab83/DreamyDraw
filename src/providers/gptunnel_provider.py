@@ -76,8 +76,8 @@ class GPTunnelMediaProvider(BaseImageProvider):
                 elif status == "error" or status == "failed":
                     raise ValueError(f"Ошибка генерации на стороне сервера (статус: {status}): {res_data}")
                 
-                print(f"Статус: {status}... ждем 7 сек")
-                time.sleep(7)
+                print(f"Статус: {status}... ждем 25 сек")
+                time.sleep(25)
                 attempt += 1
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                 print(f"Ошибка соединения при проверке статуса: {e}. Пробую еще раз через 10 сек...")

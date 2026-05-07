@@ -173,8 +173,19 @@ class Orchestrator:
         request = session.request
         for i in range(session.current_step, request.count):
             story = session.stories[i]
+            
+            # Используем подтему из плана серии, если она есть
+            current_topic = story.sub_topic if story.sub_topic else request.topic
+            
             if not story.text:
-                prompt = self.prompt_builder.build_text_prompt(request)
+                # Создаем временный запрос с подтемой для генерации текста
+                temp_request = request.model_copy(update={"topic": current_topic})
+                prompt = self.prompt_builder.build_text_prompt(temp_request)
+                
+                # Добавляем глобальный контекст для связности (если он есть)
+                if session.global_context:
+                    prompt = f"ОБЩИЙ КОНТЕКСТ СЕРИИ: {session.global_context}\n\n{prompt}"
+                
                 raw_response = self.llm.generate_text(prompt)
                 story.text, story.questions = self._parse_llm_response(raw_response)
                 self.storage.save_session(session)
