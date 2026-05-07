@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from typing import List
 from src.models.schemas import GenerationRequest, SessionState, StoryItem, WorkMode
 from src.providers.base import BaseLLMProvider, BaseImageProvider
 from src.storage.json_storage import JSONStorage
@@ -189,35 +190,162 @@ class Orchestrator:
         self.storage.save_session(session)
         return session
 
+    def _step_idea_scoring(self, session: SessionState) -> SessionState:
+        """[🤖 ИИ] Присвоение 'Детского индекса' каждой идее"""
+        if not session.ideas_pool:
+            return session
+            
+        print(f"  [STEP] idea-scoring | Оценка {len(session.ideas_pool)} идей")
+        ideas_list = [
+            {"index": i, "title": it.title, "summary": it.summary} 
+            for i, it in enumerate(session.ideas_pool)
+        ]
+        
+        prompt = self.prompt_builder.build_idea_scoring_prompt(
+            json.dumps(ideas_list, ensure_ascii=False),
+            session.request.truth_mode.value
+        )
+        response_raw = self.llm.generate_text(prompt)
+        
+        try:
+            clean_json = response_raw.replace("```json", "").replace("```", "").strip()
+            result = json.loads(clean_json)
+            scores = result.get("scores", [])
+            
+            for score_data in scores:
+                idx = score_data.get("index")
+                if 0 <= idx < len(session.ideas_pool):
+                    session.ideas_pool[idx].child_index = score_data.get("child_index", 0.0)
+            
+            # --- ЖЕСТКИЙ ФИЛЬТР ---
+            # Удаляем идеи с индексом ниже 0.3
+            original_count = len(session.ideas_pool)
+            session.ideas_pool = [it for it in session.ideas_pool if it.child_index >= 0.3]
+            if len(session.ideas_pool) < original_count:
+                print(f"  [!] Отсеяно {original_count - len(session.ideas_pool)} небезопасных идей.")
+                
+            if not session.ideas_pool:
+                print("  [!] Пул идей пуст после фильтрации. Восстанавливаем fallback.")
+                from src.models.schemas import Idea
+                session.ideas_pool = [Idea(title="Прогулка в лесу", summary="Маленький лис гуляет по лесу и изучает природу.")]
+                session.ideas_pool[0].child_index = 0.7
+
+        except Exception as e:
+            print(f"  [ERROR] idea-scoring: {e}")
+            # Fallback: всем 0.5
+            for it in session.ideas_pool:
+                it.child_index = 0.5
+                
+        return session
+
+    def _step_score_normalize(self, session: SessionState) -> SessionState:
+        """[⚙️] Нормализация весов идей (Линейная со смещением)"""
+        if not session.ideas_pool:
+            return session
+            
+        print(f"  [STEP] score-normalize | Линейная нормализация весов")
+        
+        # Мы используем линейную нормализацию с добавлением веса "живучести",
+        # чтобы разница между хорошим и средним не была экстремальной.
+        epsilon = 0.2  # Константа живучести
+        
+        try:
+            total_score = sum(it.child_index + epsilon for it in session.ideas_pool)
+            
+            for it in session.ideas_pool:
+                it.normalized_weight = (it.child_index + epsilon) / total_score
+                
+        except Exception as e:
+            print(f"  [ERROR] score-normalize: {e}")
+            # Равномерное распределение
+            for it in session.ideas_pool:
+                it.normalized_weight = 1.0 / len(session.ideas_pool)
+                
+        return session
+
+    def _step_idea_sampler(self, session: SessionState, count: int = 1) -> List[dict]:
+        """[⚙️] Взвешенная выборка уникальных идей"""
+        if not session.ideas_pool:
+            return []
+            
+        import random
+        
+        # Если идей меньше чем нужно, берем все что есть
+        k = min(count, len(session.ideas_pool))
+        
+        # Взвешенная выборка без повторений
+        pool = list(session.ideas_pool)
+        selected_items = []
+        
+        for _ in range(k):
+            weights = [it.normalized_weight for it in pool]
+            idx = random.choices(range(len(pool)), weights=weights, k=1)[0]
+            it = pool.pop(idx)
+            selected_items.append({
+                "theme": it.title,
+                "content": it.summary
+            })
+            # Пересчитываем веса для оставшихся (опционально, но правильно для суммы 1.0)
+            total_w = sum(p.normalized_weight for p in pool)
+            if total_w > 0:
+                for p in pool:
+                    p.normalized_weight /= total_w
+        
+        print(f"  [STEP] idea-sampler | Выбрано {len(selected_items)} уникальных идей из пула")
+        return selected_items
+
     def _step_series_planner(self, session: SessionState) -> SessionState:
         """[🤖 ИИ] Шаг первичного планирования"""
-        print(f"[STEP] series-planner | Составление плана для {session.request.count} историй")
-        if session.request.count == 1:
-            session.series_plan = [session.request.topic]
-            session.global_context = f"Герой темы {session.request.topic} в добром детском стиле."
-            session.current_node = "series_planned"
-            return session
-
-        prompt = self.prompt_builder.build_series_plan_prompt(session.request.topic, session.request.count)
+        print(f"[STEP] series-planner | Составление пула идей для темы: {session.request.topic}")
+        
+        # 1. Генерация пула из 10 идей
+        prompt = self.prompt_builder.build_series_plan_prompt(session.request.topic)
         response_raw = self.llm.generate_text(prompt)
+        
         try:
             clean_json = response_raw.replace("```json", "").replace("```", "").strip()
             result = json.loads(clean_json)
             session.global_context = result.get("global_context", "")
-            raw_plan = result.get("plan", [])
-            session.series_plan = [item["theme"] if isinstance(item, dict) else str(item) for item in raw_plan]
-            session.full_plan_items = raw_plan 
+            raw_ideas = result.get("ideas", [])
             
-            print(f"[STEP] series-planner | Статус: OK | План создан")
-            for i, item in enumerate(raw_plan):
-                t = item.get("theme", "N/A") if isinstance(item, dict) else item
-                c = item.get("content", "N/A") if isinstance(item, dict) else ""
-                print(f"  {i+1}. {t} | {c}")
-            
-            session.current_node = "series_planned"
+            from src.models.schemas import Idea
+            session.ideas_pool = [
+                Idea(title=it.get("theme", "Без названия"), summary=it.get("content", "")) 
+                for it in raw_ideas
+            ]
         except Exception as e:
             print(f"[STEP] series-planner | ERROR: {e}")
             session.current_node = "failed"
+            return session
+
+        if not session.ideas_pool:
+            print(f"[STEP] series-planner | ERROR: Не удалось получить пул идей")
+            session.current_node = "failed"
+            return session
+
+        # 2. Оценка пула (Scoring)
+        session = self._step_idea_scoring(session)
+        
+        # 3. Нормализация весов (Normalize)
+        session = self._step_score_normalize(session)
+        
+        # 4. Выборка N идей (Sampler)
+        # N берется из запроса пользователя (количество историй)
+        final_plan = self._step_idea_sampler(session, count=session.request.count)
+        
+        if not final_plan:
+            print(f"[STEP] series-planner | ERROR: Не удалось выбрать идеи")
+            session.current_node = "failed"
+            return session
+            
+        session.series_plan = [item["theme"] for item in final_plan]
+        session.full_plan_items = final_plan 
+        
+        print(f"[STEP] series-planner | Статус: OK | План из {len(final_plan)} историй сформирован")
+        for i, item in enumerate(final_plan):
+            print(f"  {i+1}. {item.get('theme')} | {item.get('content')}")
+        
+        session.current_node = "series_planned"
         self.storage.save_session(session)
         return session
 

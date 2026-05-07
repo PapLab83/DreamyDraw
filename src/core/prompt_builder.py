@@ -30,10 +30,16 @@ class PromptBuilder:
         instr = self._extract_prompt_block(path)
         return f"{instr}\n\nТЕМА: {topic}\nВЫБРАННЫЙ РЕЖИМ: {truth_mode}"
 
-    def build_series_plan_prompt(self, topic: str, count: int) -> str:
+    def build_series_plan_prompt(self, topic: str) -> str:
         path = os.path.join(self.prompts_dir, "text", "SERIES_PLANNER.md")
         instr = self._extract_prompt_block(path)
-        instr = instr.replace("{topic}", topic).replace("{count}", str(count)).replace("{correction_block}", "")
+        instr = instr.replace("{topic}", topic)
+        return instr
+
+    def build_idea_scoring_prompt(self, ideas_list_json: str, truth_mode: str) -> str:
+        path = os.path.join(self.prompts_dir, "text", "IDEA_SCORING.md")
+        instr = self._extract_prompt_block(path)
+        instr = instr.replace("{ideas_list}", ideas_list_json).replace("{truth_mode}", truth_mode)
         return instr
 
     def build_plan_validator_prompt(self, full_plan_json: str, context: str, truth_mode: str) -> str:
