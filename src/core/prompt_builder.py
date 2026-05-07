@@ -30,25 +30,41 @@ class PromptBuilder:
         instr = self._extract_prompt_block(path)
         return f"{instr}\n\nТЕМА: {topic}\nВЫБРАННЫЙ РЕЖИМ: {truth_mode}"
 
-    def build_series_plan_prompt(self, topic: str, count: int) -> str:
+    def build_series_plan_prompt(self, topic: str, count: int, feedback: str = None) -> str:
         path = os.path.join(self.prompts_dir, "text", "SERIES_PLANNER.md")
         instr = self._extract_prompt_block(path)
-        # Подставляем переменные в промпт
-        instr = instr.replace("{topic}", topic).replace("{count}", str(count))
+        
+        correction = ""
+        if feedback:
+            correction = f"## ПРЕДЫДУЩИЙ ПЛАН БЫЛ ОТКЛОНЕН!\nПричина: {feedback}\nПожалуйста, исправь темы согласно замечаниям."
+            
+        instr = instr.replace("{topic}", topic).replace("{count}", str(count)).replace("{correction_block}", correction)
         return instr
+
+    def build_plan_validator_prompt(self, plan: list, context: str, truth_mode: str) -> str:
+        path = os.path.join(self.prompts_dir, "text", "PLAN_VALIDATOR.md")
+        instr = self._extract_prompt_block(path)
+        truth_path = os.path.join(self.prompts_dir, "text", "truth_modes", f"{self._map_truth_mode_file_by_val(truth_mode)}.md")
+        truth_rules = self._extract_prompt_block(truth_path)
+        instr = instr.replace("{truth_mode}", truth_mode).replace("{truth_mode_rules}", truth_rules)
+        plan_text = "\n".join([f"- {item}" for item in plan])
+        return f"{instr}\n\nПЛАН ДЛЯ ПРОВЕРКИ:\n{plan_text}\n\nКОНТЕКСТ:\n{context}"
+
+    def _map_truth_mode_file_by_val(self, mode_val: str) -> str:
+        if mode_val == "Правда": return "TRUTH"
+        if mode_val == "Миф": return "MYTH"
+        if mode_val == "Сказка": return "FAIRY_TALE"
+        return "TRUTH"
 
     def build_text_prompt(self, request: GenerationRequest) -> str:
         base_path = os.path.join(self.prompts_dir, "text", "TEXT_BASE_PROMPT.md")
         base_instr = self._extract_prompt_block(base_path)
-        
         truth_file = self._map_truth_mode_file(request.truth_mode)
         truth_path = os.path.join(self.prompts_dir, "text", "truth_modes", truth_file)
         truth_instr = self._extract_prompt_block(truth_path)
-        
         style_file = self._map_text_style_file(request.text_style)
         style_path = os.path.join(self.prompts_dir, "text", "styles", style_file)
         style_instr = self._extract_prompt_block(style_path)
-        
         prompt_parts = []
         if base_instr: prompt_parts.append(base_instr)
         if truth_instr: prompt_parts.append(truth_instr)
@@ -59,14 +75,11 @@ class PromptBuilder:
     def build_image_prompt(self, story_text: str, image_style: str) -> str:
         base_path = os.path.join(self.prompts_dir, "image", "IMAGE_BASE_PROMPT.md")
         base_template = self._extract_prompt_block(base_path)
-        
         style_file = f"{self._map_image_style_name(image_style)}.md"
         style_path = os.path.join(self.prompts_dir, "image", "styles", style_file)
         style_instr = self._extract_prompt_block(style_path)
-        
         if not base_template:
             return f"Create a child-friendly illustration. Style: {image_style}. Story: {story_text}"
-            
         final_parts = [
             base_template,
             f"ВИЗУАЛЬНЫЙ СТИЛЬ: {image_style}",
