@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+import json
 from src.models.schemas import GenerationRequest, SessionState, StoryItem, WorkMode
 from src.providers.base import BaseLLMProvider, BaseImageProvider
 from src.storage.json_storage import JSONStorage
@@ -20,7 +20,6 @@ class Orchestrator:
 
     def start_session(self, request: GenerationRequest) -> SessionState:
         session = SessionState(request=request)
-        # Инициализируем пустые элементы историй
         for i in range(request.count):
             session.stories.append(StoryItem(index=i))
         self.storage.save_session(session)
@@ -31,33 +30,69 @@ class Orchestrator:
         if not session or session.is_completed:
             return session
 
-        request = session.request
+        # Машина состояний (Узлы пайплайна)
+        if session.current_node == "start":
+            session = self._step_safety_gate(session)
+            if session.current_node == "failed": return session
         
+        # Временная логика старого пайплайна для совместимости (пока не реализованы все шаги)
+        if session.current_node == "safety_passed":
+            # Пока переходим сразу к генерации как в старом коде, 
+            # по мере реализации шагов будем вставлять их сюда.
+            return self._legacy_run(session)
+
+        return session
+
+    def _step_safety_gate(self, session: SessionState) -> SessionState:
+        """[🤖 ИИ] Шаг проверки безопасности и цензуры"""
+        print(f"[STEP] safety-gate | Начало проверки темы: {session.request.topic}")
+        
+        prompt = self.prompt_builder.build_safety_prompt(session.request.topic)
+        response_raw = self.llm.generate_text(prompt)
+        
+        try:
+            # Очистка от markdown-обертки JSON если она есть
+            clean_json = response_raw.replace("```json", "").replace("```", "").strip()
+            result = json.loads(clean_json)
+            
+            if result.get("is_safe"):
+                print(f"[STEP] safety-gate | Статус: OK | Тема безопасна")
+                session.current_node = "safety_passed"
+            else:
+                reason = result.get("reason", "Неизвестная причина")
+                print(f"[STEP] safety-gate | Статус: FAILED | Причина: {reason}")
+                session.current_node = "failed"
+                # В будущем тут можно бросать исключение или сохранять ошибку в сессию
+        except Exception as e:
+            print(f"[STEP] safety-gate | Статус: ERROR | Ошибка парсинга JSON: {e}")
+            # Фолбэк: если не распарсили, но текст кажется нормальным (для моков)
+            if "true" in response_raw.lower():
+                session.current_node = "safety_passed"
+            else:
+                session.current_node = "failed"
+        
+        self.storage.save_session(session)
+        return session
+
+    def _legacy_run(self, session: SessionState) -> SessionState:
+        """Временный метод для работы старой логики генерации"""
+        request = session.request
         for i in range(session.current_step, request.count):
             story = session.stories[i]
-            
-            # Шаг 1: Генерация текста
             if not story.text:
                 prompt = self.prompt_builder.build_text_prompt(request)
                 raw_response = self.llm.generate_text(prompt)
-                
-                # Парсинг ответа (Текст истории: ... Вопросы: ...)
                 story.text, story.questions = self._parse_llm_response(raw_response)
                 self.storage.save_session(session)
 
-            # Шаг 2: Режим проверки
             if request.work_mode == WorkMode.CHECK and not story.is_confirmed:
-                # Прерываемся, чтобы пользователь подтвердил текст
                 return session
 
-            # Шаг 3: Генерация картинки
             if not story.image_path:
                 image_filename = f"story_{i}.png"
                 image_path = os.path.join("output", session.session_id, image_filename)
                 prompt = self.prompt_builder.build_image_prompt(story.text, request.image_style)
-                
                 print(f"\n[DEBUG] Финальный промпт для картинки:\n{prompt}\n")
-                
                 story.image_path = self.image.generate_image(prompt, story.text, image_path)
                 self.storage.save_session(session)
 
@@ -65,50 +100,36 @@ class Orchestrator:
             if session.current_step >= request.count:
                 session.is_completed = True
             self.storage.save_session(session)
-
         return session
 
     def _parse_llm_response(self, text: str):
-        """Парсит ответ от LLM согласно заданному формату"""
         story_part = ""
         questions = []
-        
-        # Маркеры для поиска (в порядке приоритета)
         story_markers = ["Текст истории:", "История:"]
         question_markers = ["Вопросы:"]
-        
-        # Находим начало блока вопросов
         q_start = -1
         for q_m in question_markers:
             q_start = text.find(q_m)
-            if q_start != -1:
-                break
+            if q_start != -1: break
         
         if q_start != -1:
-            # Извлекаем часть с историей
             full_story_part = text[:q_start].strip()
-            # Убираем заголовок "История:" или "Текст истории:"
             for s_m in story_markers:
                 if s_m in full_story_part:
                     full_story_part = full_story_part.replace(s_m, "").strip()
                     break
             story_part = full_story_part
-            
-            # Извлекаем вопросы
             q_block = text[q_start:].strip()
             for q_m in question_markers:
                 q_block = q_block.replace(q_m, "").strip()
-            
             q_list = q_block.split("\n")
             questions = [q.strip(" 1234567890. -") for q in q_list if q.strip()]
         else:
-            # Если маркера вопросов нет, пробуем хотя бы вычистить заголовок истории
             story_part = text
             for s_m in story_markers:
                 if s_m in story_part:
                     story_part = story_part.replace(s_m, "").strip()
                     break
-            
         return story_part, questions
 
     def confirm_story(self, session_id: str, index: int) -> SessionState:

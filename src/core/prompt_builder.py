@@ -6,95 +6,72 @@ from src.config.settings import settings
 class PromptBuilder:
     def __init__(self, prompts_dir: str = None):
         self.prompts_dir = prompts_dir or settings.PROMPTS_DIR
-        # Фолбэк на новый стандартный путь, если в настройках старый
         if self.prompts_dir == "src/prompts":
             self.prompts_dir = "docs/03_PROMPTS"
 
     def _extract_prompt_block(self, file_path: str) -> str:
-        """Извлекает текст из блока ## PROMPT_BLOCK в Markdown файле"""
         if not os.path.exists(file_path):
             return ""
-            
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
-            
-        # Улучшенный паттерн для захвата блока кода после ## PROMPT_BLOCK
         pattern = r"## PROMPT_BLOCK\s*\n+```[a-z]*\n+(.*?)\n+```"
         match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
-        
         if match:
             return match.group(1).strip()
         return ""
 
+    def build_safety_prompt(self, topic: str) -> str:
+        path = os.path.join(self.prompts_dir, "text", "SAFETY_GATE.md")
+        instr = self._extract_prompt_block(path)
+        return f"{instr}\n\nТЕМА ДЛЯ ПРОВЕРКИ: {topic}"
+
     def build_text_prompt(self, request: GenerationRequest) -> str:
-        # 1. Базовая инструкция
         base_path = os.path.join(self.prompts_dir, "text", "TEXT_BASE_PROMPT.md")
         base_instr = self._extract_prompt_block(base_path)
         
-        # 2. Режим правдивости
         truth_file = self._map_truth_mode_file(request.truth_mode)
         truth_path = os.path.join(self.prompts_dir, "text", "truth_modes", truth_file)
         truth_instr = self._extract_prompt_block(truth_path)
         
-        # 3. Стиль текста
         style_file = self._map_text_style_file(request.text_style)
         style_path = os.path.join(self.prompts_dir, "text", "styles", style_file)
         style_instr = self._extract_prompt_block(style_path)
         
-        # Сборка финального промпта
         prompt_parts = []
         if base_instr: prompt_parts.append(base_instr)
         if truth_instr: prompt_parts.append(truth_instr)
         if style_instr: prompt_parts.append(style_instr)
-        
         prompt_parts.append(f"ТЕМА ПОЛЬЗОВАТЕЛЯ: {request.topic}")
-        
         return "\n\n".join(prompt_parts)
 
     def build_image_prompt(self, story_text: str, image_style: str) -> str:
-        # 1. Базовый промпт для картинок
         base_path = os.path.join(self.prompts_dir, "image", "IMAGE_BASE_PROMPT.md")
         base_template = self._extract_prompt_block(base_path)
         
-        # 2. Стиль картинки
         style_file = f"{self._map_image_style_name(image_style)}.md"
         style_path = os.path.join(self.prompts_dir, "image", "styles", style_file)
         style_instr = self._extract_prompt_block(style_path)
         
-        # Если базовый шаблон пуст, используем жесткий фолбэк
         if not base_template:
-            return f"Create a child-friendly illustration for this story. Style: {image_style}. {style_instr} Story: {story_text}"
+            return f"Create a child-friendly illustration. Style: {image_style}. Story: {story_text}"
             
-        # Композиция промпта для картинки
-        # Мы просто склеиваем блоки, чтобы не зависеть от наличия {placeholder} внутри MD файлов
         final_parts = [
             base_template,
             f"ВИЗУАЛЬНЫЙ СТИЛЬ: {image_style}",
             f"ДЕТАЛИ СТИЛЯ: {style_instr}" if style_instr else "",
             f"СЮЖЕТ ДЛЯ ОТРИСОВКИ: {story_text}"
         ]
-        
-        # Очищаем от пустых строк и склеиваем
         return "\n\n".join([p for p in final_parts if p])
 
     def _map_truth_mode_file(self, mode: TruthMode) -> str:
-        mapping = {
-            TruthMode.TRUTH: "TRUTH.md",
-            TruthMode.MYTH: "MYTH.md",
-            TruthMode.FAIRY_TALE: "FAIRY_TALE.md"
-        }
+        mapping = {TruthMode.TRUTH: "TRUTH.md", TruthMode.MYTH: "MYTH.md", TruthMode.FAIRY_TALE: "FAIRY_TALE.md"}
         return mapping.get(mode, "TRUTH.md")
 
     def _map_text_style_file(self, style: TextStyle) -> str:
-        mapping = {
-            TextStyle.GENTLE: "GENTLE.md",
-            TextStyle.EDUCATIONAL: "EDUCATIONAL.md",
-            TextStyle.PLAYFUL: "PLAYFUL.md"
-        }
+        mapping = {TextStyle.GENTLE: "GENTLE.md", TextStyle.EDUCATIONAL: "EDUCATIONAL.md", TextStyle.PLAYFUL: "PLAYFUL.md"}
         return mapping.get(style, "EDUCATIONAL.md")
 
     def _map_image_style_name(self, style_val: str) -> str:
-        # Маппинг строкового значения стиля (из Enum) в имя файла
         from src.models.schemas import ImageStyle
         mapping = {
             ImageStyle.CARTOON.value: "CARTOON",
