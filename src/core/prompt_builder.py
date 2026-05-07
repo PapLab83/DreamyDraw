@@ -25,6 +25,18 @@ class PromptBuilder:
         instr = self._extract_prompt_block(path)
         return f"{instr}\n\nТЕМА ДЛЯ ПРОВЕРКИ: {topic}"
 
+    def build_config_match_prompt(self, topic: str, truth_mode: str) -> str:
+        path = os.path.join(self.prompts_dir, "text", "CONFIG_MATCH.md")
+        instr = self._extract_prompt_block(path)
+        return f"{instr}\n\nТЕМА: {topic}\nВЫБРАННЫЙ РЕЖИМ: {truth_mode}"
+
+    def build_series_plan_prompt(self, topic: str, count: int) -> str:
+        path = os.path.join(self.prompts_dir, "text", "SERIES_PLANNER.md")
+        instr = self._extract_prompt_block(path)
+        # Подставляем переменные в промпт
+        instr = instr.replace("{topic}", topic).replace("{count}", str(count))
+        return instr
+
     def build_text_prompt(self, request: GenerationRequest) -> str:
         base_path = os.path.join(self.prompts_dir, "text", "TEXT_BASE_PROMPT.md")
         base_instr = self._extract_prompt_block(base_path)

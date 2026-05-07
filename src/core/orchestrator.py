@@ -35,10 +35,16 @@ class Orchestrator:
             session = self._step_safety_gate(session)
             if session.current_node == "failed": return session
         
-        # Временная логика старого пайплайна для совместимости (пока не реализованы все шаги)
         if session.current_node == "safety_passed":
-            # Пока переходим сразу к генерации как в старом коде, 
-            # по мере реализации шагов будем вставлять их сюда.
+            session = self._step_config_match(session)
+            if session.current_node == "failed": return session
+
+        if session.current_node == "config_passed":
+            session = self._step_series_planner(session)
+            if session.current_node == "failed": return session
+
+        # Временная логика старого пайплайна для совместимости
+        if session.current_node == "series_planned":
             return self._legacy_run(session)
 
         return session
@@ -51,7 +57,6 @@ class Orchestrator:
         response_raw = self.llm.generate_text(prompt)
         
         try:
-            # Очистка от markdown-обертки JSON если она есть
             clean_json = response_raw.replace("```json", "").replace("```", "").strip()
             result = json.loads(clean_json)
             
@@ -62,15 +67,104 @@ class Orchestrator:
                 reason = result.get("reason", "Неизвестная причина")
                 print(f"[STEP] safety-gate | Статус: FAILED | Причина: {reason}")
                 session.current_node = "failed"
-                # В будущем тут можно бросать исключение или сохранять ошибку в сессию
         except Exception as e:
             print(f"[STEP] safety-gate | Статус: ERROR | Ошибка парсинга JSON: {e}")
-            # Фолбэк: если не распарсили, но текст кажется нормальным (для моков)
             if "true" in response_raw.lower():
                 session.current_node = "safety_passed"
             else:
                 session.current_node = "failed"
         
+        self.storage.save_session(session)
+        return session
+
+    def _step_config_match(self, session: SessionState) -> SessionState:
+        """[🤖 ИИ] Шаг проверки логической совместимости темы и режима"""
+        current_mode_val = session.request.truth_mode.value
+        print(f"[STEP] config-match | Проверка совместимости темы '{session.request.topic}' и режима '{current_mode_val}'")
+        
+        prompt = self.prompt_builder.build_config_match_prompt(
+            session.request.topic, 
+            current_mode_val
+        )
+        response_raw = self.llm.generate_text(prompt)
+        
+        try:
+            clean_json = response_raw.replace("```json", "").replace("```", "").strip()
+            result = json.loads(clean_json)
+            
+            if result.get("is_compatible"):
+                print(f"[STEP] config-match | Статус: OK | Конфигурация логична")
+                session.current_node = "config_passed"
+            else:
+                reason = result.get("reason", "Несоответствие темы и режима")
+                suggested = result.get("suggested_mode", "")
+                
+                print(f"\n[!] ВНИМАНИЕ: {reason}")
+                if suggested:
+                    print(f"Тема больше подходит для режима '{suggested}'.")
+                    choice = input(f"Переключить режим на '{suggested}' и продолжить? (y/n): ").lower()
+                    if choice == 'y':
+                        # Пытаемся найти соответствие в Enum
+                        from src.models.schemas import TruthMode
+                        for mode in TruthMode:
+                            if mode.value.lower() == suggested.lower() or suggested.lower() in mode.value.lower():
+                                session.request.truth_mode = mode
+                                break
+                        print(f"--- Режим изменен на '{session.request.truth_mode.value}'. Продолжаем... ---")
+                        session.current_node = "config_passed"
+                    else:
+                        print("Генерация отменена пользователем.")
+                        session.current_node = "failed"
+                else:
+                    print("Автоматическое исправление невозможно.")
+                    session.current_node = "failed"
+        except Exception as e:
+            print(f"[STEP] config-match | Статус: ERROR | Ошибка парсинга JSON: {e}")
+            if "true" in response_raw.lower():
+                session.current_node = "config_passed"
+            else:
+                session.current_node = "failed"
+        
+        self.storage.save_session(session)
+        return session
+
+    def _step_series_planner(self, session: SessionState) -> SessionState:
+        """[🤖 ИИ] Шаг планирования серии историй"""
+        print(f"[STEP] series-planner | Составление плана для {session.request.count} историй")
+        
+        # Если количество = 1, планирование упрощено
+        if session.request.count == 1:
+            session.series_plan = [session.request.topic]
+            session.global_context = f"Герой темы {session.request.topic} в добром детском стиле."
+            session.current_node = "series_planned"
+            print(f"[STEP] series-planner | Статус: OK | Одиночная история")
+            self.storage.save_session(session)
+            return session
+
+        prompt = self.prompt_builder.build_series_plan_prompt(
+            session.request.topic, 
+            session.request.count
+        )
+        response_raw = self.llm.generate_text(prompt)
+        
+        try:
+            clean_json = response_raw.replace("```json", "").replace("```", "").strip()
+            result = json.loads(clean_json)
+            
+            session.series_plan = result.get("plan", [])
+            session.global_context = result.get("global_context", "")
+            
+            # Обновляем подтемы в существующих StoryItem
+            for i, sub_topic in enumerate(session.series_plan):
+                if i < len(session.stories):
+                    session.stories[i].sub_topic = sub_topic
+            
+            print(f"[STEP] series-planner | Статус: OK | План составлен: {', '.join(session.series_plan)}")
+            session.current_node = "series_planned"
+        except Exception as e:
+            print(f"[STEP] series-planner | Статус: ERROR | Ошибка парсинга JSON: {e}")
+            session.current_node = "failed"
+            
         self.storage.save_session(session)
         return session
 
