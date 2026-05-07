@@ -44,6 +44,11 @@ def main():
     while not session.is_completed:
         session = orchestrator.run_pipeline(session_id)
         
+        # Если пайплайн остановлен из-за ошибки в одном из узлов
+        if session.current_node == "failed":
+            print("\n!!! Программа остановлена из-за ошибки в процессе генерации. Подробности в логах выше.")
+            break
+            
         current_idx = session.current_step
         if current_idx < len(session.stories):
             story = session.stories[current_idx]
