@@ -48,7 +48,12 @@ class PromptBuilder:
         path = os.path.join(self.prompts_dir, "text", "PLAN_REFINER.md")
         instr = self._extract_prompt_block(path)
         instr = instr.replace("{truth_mode}", truth_mode)
-        return f"{instr}\n\nТЕКУЩИЙ ПЛАН (JSON):\n{current_plan_json}\n\nЗАМЕЧАНИЯ ВАЛИДАТОРА (JSON):\n{validator_feedback_json}"
+        return f"{instr}\n\nТЕКУЩИЙ ПЛАН (JSON):\n{current_plan_json}\n\nЗАМЕЧАНИЯ ВАЛИДАТОРА И РЕШЕНИЯ (JSON):\n{validator_feedback_json}"
+
+    def build_plan_reviewer_prompt(self, current_plan_json: str, validator_feedback_json: str, user_comment: str) -> str:
+        path = os.path.join(self.prompts_dir, "text", "PLAN_REVIEWER.md")
+        instr = self._extract_prompt_block(path)
+        return f"{instr}\n\nТЕКУЩИЙ ПЛАН (JSON):\n{current_plan_json}\n\nЗАМЕЧАНИЯ КРИТИКА (JSON):\n{validator_feedback_json}\n\nКОММЕНТАРИЙ АВТОРА:\n{user_comment}"
 
     def _map_truth_mode_file_by_val(self, mode_val: str) -> str:
         if mode_val == "Правда": return "TRUTH"

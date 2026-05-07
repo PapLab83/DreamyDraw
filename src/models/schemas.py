@@ -67,5 +67,14 @@ class SessionState(BaseModel):
     current_step: int = 0
     is_completed: bool = False
     
+    # Хранилище одобренных тем (чистовик) - словарь {index: {"theme": str, "content": str}}
+    approved_plan_items: dict = {}
+    
+    # Полный текущий план с описаниями (черновик)
+    full_plan_items: List[dict] = []
+    
     # Статус текущего шага пайплайна
     current_node: str = "start"  # Имя текущего узла для восстановления
+    user_feedback: Optional[str] = None  # Обратная связь от пользователя
+    validator_feedback: str = "{}"  # Результаты последней валидации (JSON string)
+    approved_indices: List[int] = []  # Список индексов одобренных тем

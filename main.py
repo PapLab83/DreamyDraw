@@ -9,14 +9,9 @@ def main():
     parser = get_cli_parser()
     args = parser.parse_args()
 
-    # Инициализация через Фабрику и Настройки
     storage = JSONStorage(base_dir=settings.OUTPUT_DIR)
-    
-    # Можно переопределить провайдера через аргумент командной строки в будущем,
-    # а пока берем из настроек (.env или дефолт)
     llm = ProviderFactory.get_llm_provider(settings.LLM_PROVIDER)
     image = ProviderFactory.get_image_provider(settings.IMAGE_PROVIDER)
-    
     orchestrator = Orchestrator(llm, image, storage)
 
     if args.session:
@@ -26,7 +21,6 @@ def main():
             print(f"Сессия {session_id} не найдена.")
             return
     else:
-        # Создание новой сессии
         count = args.count if args.count else parse_count(args.topic)
         request = GenerationRequest(
             topic=args.topic,
@@ -44,32 +38,43 @@ def main():
     while not session.is_completed:
         session = orchestrator.run_pipeline(session_id)
         
-        # Если пайплайн остановлен из-за ошибки в одном из узлов
         if session.current_node == "failed":
-            print("\n!!! Программа остановлена из-за ошибки в процессе генерации. Подробности в логах выше.")
+            print("\n!!! Программа остановлена из-за ошибки.")
             break
-            
-        current_idx = session.current_step
-        if current_idx < len(session.stories):
-            story = session.stories[current_idx]
-            
-            # Если мы в режиме check и текст готов, но не подтвержден
-            if session.request.work_mode == WorkMode.CHECK and not story.is_confirmed:
-                print(f"\n[История {current_idx + 1}/{session.request.count}]")
+
+        # Обработка обратной связи по ПЛАНУ
+        if session.current_node == "plan_needs_refine":
+            print("\n--- ОБРАТНАЯ СВЯЗЬ ПО ПЛАНУ ---")
+            print("Критик нашел несоответствия в некоторых темах.")
+            user_input = input("Ваш совет для ИИ (Enter, чтобы ИИ исправил сам по советам критика): ").strip()
+            if user_input:
+                session.user_feedback = user_input
+                storage.save_session(session)
+            continue # Возвращаемся в пайплайн для запуска step-plan-refine
+
+        # Пакетное согласование ТЕКСТОВ
+        unconfirmed = [s for s in session.stories if s.text and not s.is_confirmed]
+        if session.request.work_mode == WorkMode.CHECK and unconfirmed:
+            print("\n--- СОГЛАСОВАНИЕ ТЕКСТОВ СЕРИИ ---")
+            for i, story in enumerate(session.stories):
+                print(f"\n[История {i+1}/{len(session.stories)}]")
+                print(f"Тема: {story.sub_topic}")
                 print(f"Текст: {story.text}")
                 print(f"Вопросы: {', '.join(story.questions)}")
-                
-                choice = input("\nПодтвердить текст? (y/n/r - regenerate): ").lower()
-                if choice == 'y':
-                    orchestrator.confirm_story(session_id, current_idx)
-                elif choice == 'r':
-                    # Логика регенерации (в прототипе просто сбросим текст)
+
+            choice = input("\nПодтвердить ВСЕ тексты и начать отрисовку? (y - да / n - отмена / r - перегенерировать всё): ").lower()
+            if choice == 'y':
+                for story in session.stories:
+                    orchestrator.confirm_story(session_id, story.index)
+            elif choice == 'r':
+                for story in session.stories:
                     story.text = ""
-                    storage.save_session(session)
-                else:
-                    print("Остановка по требованию пользователя.")
-                    break
-        
+                storage.save_session(session)
+            else:
+                print("Остановка по требованию пользователя.")
+                return
+            continue
+
         if session.is_completed:
             print(f"\n--- Генерация завершена! ---")
             print(f"Результаты в папке: output/{session_id}")

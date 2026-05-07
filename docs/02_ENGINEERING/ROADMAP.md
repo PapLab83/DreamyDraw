@@ -42,19 +42,21 @@
 
 | Шаг | Ссылка на логику | Статус | DoD (Definition of Done) |
 | :--- | :--- | :--- | :--- |
-| step-safety-gate | [Logic → ORCHESTRATOR_SPEC.md#step-safety-validate] | [ ] | Тема проверена на цензуру и безопасность. |
-| step-config-match | [Logic → ORCHESTRATOR_SPEC.md#step-config-match] | [ ] | Тема проверена на совместимость с выбранным режимом. |
-| step-series-planner | [Logic → ORCHESTRATOR_SPEC.md#step-series-planner] | [ ] | План из N уникальных подтем в SessionState. |
-| step-idea-generator | [Logic → ORCHESTRATOR_SPEC.md#step-idea-generator] | [ ] | Сгенерирован пул идей для текущего аспекта. |
+| step-safety-gate | [Logic → ORCHESTRATOR_SPEC.md#step-safety-validate] | [x] | Тема проверена на цензуру и безопасность. |
+| step-config-match | [Logic → ORCHESTRATOR_SPEC.md#step-config-match] | [x] | Тема проверена на совместимость с выбранным режимом. |
+| step-series-planner | [Logic → ORCHESTRATOR_SPEC.md#step-series-planner] | [x] | План из N уникальных подтем с идеями в SessionState. |
+| step-idea-generator | [Logic → ORCHESTRATOR_SPEC.md#step-idea-generator] | [x] | (Совмещено с планировщиком) Пул идей готов. |
 | step-idea-scoring | [Logic → ORCHESTRATOR_SPEC.md#step-idea-scoring] | [ ] | Идеям присвоен детский индекс [0..1]. |
 | step-score-normalize | [Logic → ORCHESTRATOR_SPEC.md#step-score-normalize] | [ ] | Индексы нормализованы для выборки. |
 | step-idea-sampler | [Logic → ORCHESTRATOR_SPEC.md#step-idea-sampler] | [ ] | Выбрана одна идея (взвешенная выборка). |
 | step-child-filter | [Logic → ORCHESTRATOR_SPEC.md#step-child-filter] | [ ] | Сгенерирована история + вопросы (MD-база). |
-| step-story-validator | [Logic → ORCHESTRATOR_SPEC.md#step-story-validator] | [ ] | Текст проверен Критиком на соответствие правилам. |
+| step-story-validator | [Logic → ORCHESTRATOR_SPEC.md#step-story-validator] | [ ] | Текст проверен Критиком перед показом пользователю. |
+| step-user-feedback | - | [ ] | Пользователь может дать совет ИИ при ошибках валидации. |
 | step-story-refine | [Logic → ORCHESTRATOR_SPEC.md#step-story-refine] | [ ] | Текст исправлен по замечаниям (до 3 ретраев). |
 | step-image-pipeline | [Logic → ORCHESTRATOR_SPEC.md#step-image-pipeline] | [ ] | Иллюстрация готова (асинхронно, polling). |
 
 ## Этап 6+: (Будущее)
+- [ ] создание начального пула идей мне кажется не правильно описано, хорошо бы там были не просто факты а еще и интересные факты (если речь о фактах и надо в целом подумать как им управлять началом самым)
 - [ ] тестирование различных сценариев и отладка некоторых логических неточностей и приведения стиля к более качественному
 - [ ] добавить видео генерацию по описанию
 - [ ] добавить возможность добавлять свое фото или видео и наделять своего персонажа какими то характеристиками
