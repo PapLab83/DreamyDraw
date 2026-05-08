@@ -1,61 +1,57 @@
 # MODULES.md - Модули и интерфейсы
 
-## 1. Core / Orchestrator
-- `Orchestrator`: Главный класс, управляющий пайплайном.
-    - `run(request: GenerationRequest) -> List[Story]`
-    - `confirm_text(session_id: str, index: int)`
-    - `regenerate_text(session_id: str, index: int)`
+## 1. Core / Orchestrator (`src/core/orchestrator.py`)
+Центральный узел системы, реализующий бизнес-логику пайплайна.
 
-## 2. Providers (Интерфейсы)
-### LLM Provider
-- `BaseLLMProvider`:
-    - `generate_text(prompt: str) -> str`
-    - `generate_questions(text: str) -> List[str]`
-### Image Provider
-- `BaseImageProvider`:
-    - `generate_image(prompt: str, overlay_text: str) -> str (path_or_url)`
+- **Основные методы:**
+    - `run_pipeline(session_id: str)`: Запуск или возобновление процесса генерации.
+    - `_step_series_planner`: Генерация пула из 10 идей.
+    - `_step_idea_scoring`: Оценка идей по "Детскому индексу".
+    - `_step_idea_sampler`: Взвешенный отбор N уникальных идей.
+    - `_step_plan_validator`: Проверка идей Критиком.
+    - `_step_plan_refine`: Цикл Reviewer -> Refiner для исправления тем.
+    - `_pipeline_content_generation`: Генерация финальных рассказов на базе одобренного плана.
 
-## 3. Storage (JSON Storage)
-- `JSONStorage`: Класс для работы с файлами.
-    - `save_session(session: SessionState)`
-    - `get_session(session_id: str) -> SessionState`
-    - `get_cache(key: str) -> Optional[Result]`
-    - `save_cache(key: str, data: Result)`
+## 2. Prompt Builder (`src/core/prompt_builder.py`)
+Динамическая сборка промптов из шаблонов в `docs/03_PROMPTS/`.
+- Поддерживает инъекцию контекста (approved items, user comments, validator feedback).
 
-## 4. Models (Pydantic)
-- `GenerationRequest`: Тема, режимы, стили, количество.
-- `Story`: Текст, путь к картинке, список вопросов.
-- `SessionState`: Промежуточные данные, статус (pending/completed).
+## 3. Providers (`src/providers/`)
+- `BaseLLMProvider`: Интерфейс для текстовых моделей.
+- `BaseImageProvider`: Интерфейс для генерации изображений.
+- `LLMMockProvider`: Мок-провайдер для тестирования логики без затрат на API.
 
-## 5. Configuration
-- `Config`: Загрузка из `.env` и `config.yaml`.
-- `PromptsRegistry`: Хранение шаблонов промптов.
+## 4. Models (`src/models/schemas.py`)
+- `Idea`: Структура для хранения варианта сюжета со скорингом.
+- `StoryItem`: Окончательная история (текст, вопросы, картинка).
+- `SessionState`: Полный снимок состояния сессии, включая "Зону доверия" (`approved_plan_items`).
 
-## 6. Файловая структура (рекомендуемая)
+## 5. Storage (`src/storage/json_storage.py`)
+- `JSONStorage`: Сохранение и загрузка `SessionState`. Использует структуру `output/<session_id>/state.json`.
+
+## 6. Configuration (`src/config/settings.py`)
+- `Settings`: Настройки из `.env` (API ключи, модели, лимиты).
+
+## 7. Файловая структура (Актуальная)
 ```text
 dreamydraw/
-├── assets/
-│   └── mocks/            # Мок-данные (картинки, тексты)
-├── docs/                 # Документация
-├── output/               # Результаты генерации (JSON + JPG)
+├── docs/                 # Документация и Системные промпты
+│   └── 03_PROMPTS/       # Шаблоны промптов (Planner, Validator, и др.)
+├── output/               # Результаты сессий (JSON + JPG)
 ├── src/
 │   ├── core/
-│   │   ├── orchestrator.py  # Логика пайплайна
-│   │   └── pipeline.py      # Шаги процесса
+│   │   ├── orchestrator.py  # Главный оркестратор
+│   │   ├── factory.py       # Фабрика провайдеров
+│   │   └── prompt_builder.py # Сборщик промптов
 │   ├── models/
 │   │   └── schemas.py       # Pydantic модели
 │   ├── providers/
-│   │   ├── base.py          # Базовые интерфейсы
-│   │   ├── llm_mock.py      # Мок LLM
-│   │   └── image_mock.py    # Мок генератора картинок
+│   │   ├── base.py          # Базовые классы
+│   │   └── gptunnel.py      # Реализация для GPTunnel
 │   ├── storage/
-│   │   ├── json_storage.py  # Работа с файлами и блокировками
-│   │   └── cache.py         # Логика кеширования
-│   ├── utils/
-│   │   ├── cli_parser.py    # Парсинг аргументов
-│   │   └── logger.py        # Логирование
-│   └── config.py            # Загрузка настроек
-├── .env.example
-├── main.py                  # Точка входа (CLI)
+│   │   └── json_storage.py  # Хранилище сессий
+│   └── config/
+│       └── settings.py      # Настройки проекта
+├── main.py                  # Точка входа
 └── requirements.txt
 ```
