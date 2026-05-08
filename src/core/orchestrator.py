@@ -280,7 +280,10 @@ class Orchestrator:
     def _step_series_planner(self, session: SessionState) -> SessionState:
         print(f"[STEP] series-planner | Составление пула идей для темы: {session.request.topic}")
 
-        prompt = self.prompt_builder.build_series_plan_prompt(session.request.topic)
+        prompt = self.prompt_builder.build_series_plan_prompt(
+            session.request.topic,
+            session.request.truth_mode.value
+        )
         response_raw = self.llm.generate_text(prompt)
 
         try:

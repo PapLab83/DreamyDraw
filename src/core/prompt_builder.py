@@ -30,8 +30,9 @@ class PromptBuilder:
         instr = self._extract_prompt_block(path)
         return f"{instr}\n\nТЕМА: {topic}\nВЫБРАННЫЙ РЕЖИМ: {truth_mode}"
 
-    def build_series_plan_prompt(self, topic: str) -> str:
-        path = os.path.join(self.prompts_dir, "text", "SERIES_PLANNER.md")
+    def build_series_plan_prompt(self, topic: str, truth_mode: str = "Правда") -> str:
+        suffix = self._map_truth_mode_to_suffix(truth_mode)
+        path = os.path.join(self.prompts_dir, "text", "planners", f"SERIES_PLANNER_{suffix}.md")
         instr = self._extract_prompt_block(path)
         instr = instr.replace("{topic}", topic)
         return instr
