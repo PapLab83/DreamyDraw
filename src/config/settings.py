@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     MEDIA_POLL_INTERVAL_SECONDS: int = constants.MEDIA_POLL_INTERVAL_SECONDS
     MEDIA_RETRY_INTERVAL_SECONDS: int = constants.MEDIA_RETRY_INTERVAL_SECONDS
     IMAGE_ASPECT_RATIO: str = constants.IMAGE_ASPECT_RATIO
+
+    # Логирование
+    LOG_LEVEL: str = constants.LOG_LEVEL
+    LOG_TO_FILE: bool = constants.LOG_TO_FILE
+    LOG_FILE_PATH: str = constants.LOG_FILE_PATH
+    LOG_FORMAT_COLORED: bool = constants.LOG_FORMAT_COLORED
     
     # Пути
     OUTPUT_DIR: str = "output"

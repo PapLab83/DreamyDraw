@@ -5,6 +5,7 @@ from src.core.orchestrator import Orchestrator
 from src.core.factory import ProviderFactory
 from src.storage.json_storage import JSONStorage
 from src.config.settings import settings
+from src.utils.logging_config import setup_logging
 
 
 def _print_revision_history(session, problem_indices):
@@ -34,6 +35,13 @@ def _print_revision_history(session, problem_indices):
 
 
 def main():
+    setup_logging(
+        level=settings.LOG_LEVEL,
+        to_file=settings.LOG_TO_FILE,
+        file_path=settings.LOG_FILE_PATH,
+        colored=settings.LOG_FORMAT_COLORED,
+    )
+
     parser = get_cli_parser()
     args = parser.parse_args()
 

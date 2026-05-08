@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from typing import List
 from src.config import constants
 from src.config.settings import settings
@@ -10,6 +11,7 @@ from src.core.prompt_builder import PromptBuilder
 
 USER_ARBITRATION_THRESHOLD = settings.USER_ARBITRATION_THRESHOLD
 MAX_VALIDATION_RETRIES = settings.MAX_VALIDATION_RETRIES
+logger = logging.getLogger(__name__)
 
 
 class Orchestrator:
@@ -70,15 +72,15 @@ class Orchestrator:
                 return session
 
         if session.current_node == "plan_approved":
-            print("\n--- ФИНАЛЬНЫЙ ПЛАН СЕРИИ ---")
+            logger.info("--- ФИНАЛЬНЫЙ ПЛАН СЕРИИ ---")
             for i in range(len(session.series_plan)):
                 item = session.approved_plan_items.get(str(i))
                 if not item and i < len(session.full_plan_items):
                     item = session.full_plan_items[i]
 
                 if item:
-                    print(f"  {i + 1}. {item.get('theme')} | {item.get('content')}")
-            print("----------------------------\n")
+                    logger.info("  %s. %s | %s", i + 1, item.get("theme"), item.get("content"))
+            logger.info("----------------------------")
 
             return self._pipeline_content_generation(session)
 
@@ -111,8 +113,8 @@ class Orchestrator:
                 prompt = self.prompt_builder.build_text_prompt(temp_request, session.global_context)
 
                 if current_content:
-                    print(f"  [DEBUG] История {i + 1}: Используется одобренный сюжет")
-                    print(f"          Входящий сюжет: {current_content}")
+                    logger.debug("[DEBUG] История %s: Используется одобренный сюжет", i + 1)
+                    logger.debug("Входящий сюжет: %s", current_content)
                     prompt += f"\n\nИСПОЛЬЗУЙ СЛЕДУЮЩИЙ СЮЖЕТ (ОДОБРЕНО): {current_content}"
 
                 raw_response = self.llm.generate_text(prompt)
@@ -138,17 +140,17 @@ class Orchestrator:
         return session
 
     def _step_safety_gate(self, session: SessionState) -> SessionState:
-        print(f"[STEP] safety-gate | Проверка темы: {session.request.topic}")
+        logger.info("[STEP] safety-gate | Проверка темы: %s", session.request.topic)
         prompt = self.prompt_builder.build_safety_prompt(session.request.topic)
         response_raw = self.llm.generate_text(prompt)
         try:
             clean_json = response_raw.replace("```json", "").replace("```", "").strip()
             result = json.loads(clean_json)
             if result.get("is_safe"):
-                print(f"[STEP] safety-gate | Статус: OK")
+                logger.info("[STEP] safety-gate | Статус: OK")
                 session.current_node = "safety_passed"
             else:
-                print(f"[STEP] safety-gate | Статус: FAILED | {result.get('reason')}")
+                logger.error("[STEP] safety-gate | Статус: FAILED | %s", result.get("reason"))
                 session.current_node = "failed"
         except Exception:
             session.current_node = "safety_passed" if "true" in response_raw.lower() else "failed"
@@ -157,18 +159,18 @@ class Orchestrator:
 
     def _step_config_match(self, session: SessionState) -> SessionState:
         mode_val = session.request.truth_mode.value
-        print(f"[STEP] config-match | Проверка совместимости темы и режима '{mode_val}'")
+        logger.info("[STEP] config-match | Проверка совместимости темы и режима '%s'", mode_val)
         prompt = self.prompt_builder.build_config_match_prompt(session.request.topic, mode_val)
         response_raw = self.llm.generate_text(prompt)
         try:
             clean_json = response_raw.replace("```json", "").replace("```", "").strip()
             result = json.loads(clean_json)
             if result.get("is_compatible"):
-                print(f"[STEP] config-match | Статус: OK")
+                logger.info("[STEP] config-match | Статус: OK")
                 session.current_node = "config_passed"
             else:
                 suggested = result.get("suggested_mode", "")
-                print(f"\n[!] ВНИМАНИЕ: {result.get('reason')}")
+                logger.warning("[!] ВНИМАНИЕ: %s", result.get("reason"))
                 choice = input(f"Переключить на '{suggested}' и продолжить? (y/n): ").lower()
                 if choice == 'y':
                     from src.models.schemas import TruthMode
@@ -188,7 +190,7 @@ class Orchestrator:
         if not session.ideas_pool:
             return session
 
-        print(f"  [STEP] idea-scoring | Оценка {len(session.ideas_pool)} идей")
+        logger.info("  [STEP] idea-scoring | Оценка %s идей", len(session.ideas_pool))
         ideas_list = [
             {"index": i, "title": it.title, "summary": it.summary}
             for i, it in enumerate(session.ideas_pool)
@@ -213,17 +215,17 @@ class Orchestrator:
             original_count = len(session.ideas_pool)
             session.ideas_pool = [it for it in session.ideas_pool if it.child_index >= settings.MIN_CHILD_INDEX]
             if len(session.ideas_pool) < original_count:
-                print(f"  [!] Отсеяно {original_count - len(session.ideas_pool)} небезопасных идей.")
+                logger.warning("  [!] Отсеяно %s небезопасных идей.", original_count - len(session.ideas_pool))
 
             if not session.ideas_pool:
-                print("  [!] Пул идей пуст после фильтрации. Восстанавливаем fallback.")
+                logger.warning("  [!] Пул идей пуст после фильтрации. Восстанавливаем fallback.")
                 from src.models.schemas import Idea
                 session.ideas_pool = [
                     Idea(title="Прогулка в лесу", summary="Маленький лис гуляет по лесу и изучает природу.")]
                 session.ideas_pool[0].child_index = settings.FALLBACK_IDEA_CHILD_INDEX
 
         except Exception as e:
-            print(f"  [ERROR] idea-scoring: {e}")
+            logger.error("  [ERROR] idea-scoring: %s", e)
             for it in session.ideas_pool:
                 it.child_index = settings.DEFAULT_IDEA_CHILD_INDEX
 
@@ -233,7 +235,7 @@ class Orchestrator:
         if not session.ideas_pool:
             return session
 
-        print(f"  [STEP] score-normalize | Линейная нормализация весов")
+        logger.info("  [STEP] score-normalize | Линейная нормализация весов")
 
         try:
             total_score = sum(it.child_index + settings.SCORE_NORMALIZATION_EPSILON for it in session.ideas_pool)
@@ -242,7 +244,7 @@ class Orchestrator:
                 it.normalized_weight = (it.child_index + settings.SCORE_NORMALIZATION_EPSILON) / total_score
 
         except Exception as e:
-            print(f"  [ERROR] score-normalize: {e}")
+            logger.error("  [ERROR] score-normalize: %s", e)
             for it in session.ideas_pool:
                 it.normalized_weight = 1.0 / len(session.ideas_pool)
 
@@ -272,11 +274,11 @@ class Orchestrator:
                 for p in pool:
                     p.normalized_weight /= total_w
 
-        print(f"  [STEP] idea-sampler | Выбрано {len(selected_items)} уникальных идей из пула")
+        logger.info("  [STEP] idea-sampler | Выбрано %s уникальных идей из пула", len(selected_items))
         return selected_items
 
     def _step_series_planner(self, session: SessionState) -> SessionState:
-        print(f"[STEP] series-planner | Составление пула идей для темы: {session.request.topic}")
+        logger.info("[STEP] series-planner | Составление пула идей для темы: %s", session.request.topic)
 
         prompt = self.prompt_builder.build_series_plan_prompt(
             session.request.topic,
@@ -296,12 +298,12 @@ class Orchestrator:
                 for it in raw_ideas
             ]
         except Exception as e:
-            print(f"[STEP] series-planner | ERROR: {e}")
+            logger.error("[STEP] series-planner | ERROR: %s", e)
             session.current_node = "failed"
             return session
 
         if not session.ideas_pool:
-            print(f"[STEP] series-planner | ERROR: Не удалось получить пул идей")
+            logger.error("[STEP] series-planner | ERROR: Не удалось получить пул идей")
             session.current_node = "failed"
             return session
 
@@ -311,7 +313,7 @@ class Orchestrator:
         final_plan = self._step_idea_sampler(session, count=session.request.count)
 
         if not final_plan:
-            print(f"[STEP] series-planner | ERROR: Не удалось выбрать идеи")
+            logger.error("[STEP] series-planner | ERROR: Не удалось выбрать идеи")
             session.current_node = "failed"
             return session
 
@@ -327,17 +329,21 @@ class Orchestrator:
                 "note": "Исходная версия от планировщика"
             }]
 
-        print(f"[STEP] series-planner | Статус: OK | План из {len(final_plan)} историй сформирован")
+        logger.info("[STEP] series-planner | Статус: OK | План из %s историй сформирован", len(final_plan))
         for i, item in enumerate(final_plan):
-            print(f"  {i + 1}. {item.get('theme')} | {item.get('content')}")
+            logger.info("  %s. %s | %s", i + 1, item.get("theme"), item.get("content"))
 
         session.current_node = "series_planned"
         self.storage.save_session(session)
         return session
 
     def _step_plan_validator(self, session: SessionState) -> SessionState:
-        print(f"[STEP] plan-validator | Проверка плана на соответствие режиму...")
-        print(f"[CYCLE] validation_cycles (до запуска) = {session.validation_cycles}/{USER_ARBITRATION_THRESHOLD}")
+        logger.info("[STEP] plan-validator | Проверка плана на соответствие режиму...")
+        logger.info(
+            "[CYCLE] validation_cycles (до запуска) = %s/%s",
+            session.validation_cycles,
+            USER_ARBITRATION_THRESHOLD,
+        )
 
         approved_indices = session.approved_indices
         current_plan_full = session.full_plan_items
@@ -356,7 +362,12 @@ class Orchestrator:
             if i in approved_indices:
                 content_preview = item.get('content', '')[:constants.VALIDATOR_CONTENT_PREVIEW_CHARS] + "..." if len(
                     item.get('content', '')) > constants.VALIDATOR_CONTENT_PREVIEW_CHARS else item.get('content', '')
-                print(f"  [OK] Тема {i + 1} ({item.get('theme', 'N/A')}): Уже одобрена. ({content_preview})")
+                logger.info(
+                    "  [OK] Тема %s (%s): Уже одобрена. (%s)",
+                    i + 1,
+                    item.get("theme", "N/A"),
+                    content_preview,
+                )
                 already_approved_indices.append(i)
             else:
                 plan_to_verify.append({
@@ -366,10 +377,10 @@ class Orchestrator:
                 })
 
         if not plan_to_verify:
-            print(f"[STEP] plan-validator | Статус: APPROVED (все темы уже одобрены)")
+            logger.info("[STEP] plan-validator | Статус: APPROVED (все темы уже одобрены)")
             # Сброс счетчика — все темы одобрены
             if session.validation_cycles != 0:
-                print(f"[CYCLE] validation_cycles reset → 0 (все темы одобрены)")
+                logger.info("[CYCLE] validation_cycles reset -> 0 (все темы одобрены)")
             session.validation_cycles = 0
             session.current_node = "plan_approved"
             self.storage.save_session(session)
@@ -389,7 +400,7 @@ class Orchestrator:
             invalid_indices = [mapping[i] for i in raw_invalid if i in mapping]
 
             if not invalid_indices:
-                print(f"[STEP] plan-validator | Статус: APPROVED")
+                logger.info("[STEP] plan-validator | Статус: APPROVED")
                 session.current_node = "plan_approved"
                 verified_indices = [item["index"] for item in plan_to_verify]
                 for idx in verified_indices:
@@ -403,10 +414,10 @@ class Orchestrator:
 
                 # Сброс счетчика — все одобрено
                 if session.validation_cycles != 0:
-                    print(f"[CYCLE] validation_cycles reset → 0 (план одобрен полностью)")
+                    logger.info("[CYCLE] validation_cycles reset -> 0 (план одобрен полностью)")
                 session.validation_cycles = 0
             else:
-                print(f"[STEP] plan-validator | Статус: REJECTED")
+                logger.warning("[STEP] plan-validator | Статус: REJECTED")
                 final_reasons, final_suggestions, final_indices = [], [], []
 
                 for i, rel_idx in enumerate(raw_invalid):
@@ -417,9 +428,9 @@ class Orchestrator:
                     suggestion = result.get("suggestions", [])[i] if i < len(result.get("suggestions", [])) else ""
 
                     theme_title = current_plan_full[abs_idx].get("theme", "")
-                    print(f"  - Тема {abs_idx + 1} ({theme_title}): {reason}")
+                    logger.warning("  - Тема %s (%s): %s", abs_idx + 1, theme_title, reason)
                     if suggestion:
-                        print(f"    Рекомендация: {suggestion}")
+                        logger.warning("    Рекомендация: %s", suggestion)
 
                     final_indices.append(abs_idx)
                     final_reasons.append(reason)
@@ -442,7 +453,7 @@ class Orchestrator:
                 for idx in passed_indices:
                     topic_data = next((it for it in plan_to_verify if it["index"] == idx), None)
                     if topic_data:
-                        print(f"  [OK] Тема {idx + 1} ({topic_data['theme']}): Проверка пройдена.")
+                        logger.info("  [OK] Тема %s (%s): Проверка пройдена.", idx + 1, topic_data["theme"])
                         session.approved_plan_items[str(idx)] = {
                             "theme": topic_data["theme"],
                             "content": topic_data["content"]
@@ -458,25 +469,31 @@ class Orchestrator:
 
                 # Инкремент счетчика — REJECTED
                 session.validation_cycles += 1
-                print(f"[CYCLE] validation_cycles += 1 → {session.validation_cycles}/{USER_ARBITRATION_THRESHOLD}")
+                logger.info(
+                    "[CYCLE] validation_cycles += 1 -> %s/%s",
+                    session.validation_cycles,
+                    USER_ARBITRATION_THRESHOLD,
+                )
 
                 # Защита от абсолютного потолка
                 if session.validation_cycles > MAX_VALIDATION_RETRIES:
-                    print(f"\n[!!!] ОШИБКА: Превышен абсолютный лимит попыток ({MAX_VALIDATION_RETRIES}).")
+                    logger.error("[!!!] ОШИБКА: Превышен абсолютный лимит попыток (%s).", MAX_VALIDATION_RETRIES)
                     session.current_node = "failed"
                     self.storage.save_session(session)
                     return session
 
                 # Решаем: вмешательство пользователя или автоматический рефайн
                 if session.validation_cycles >= USER_ARBITRATION_THRESHOLD:
-                    print(
-                        f"[CYCLE] Достигнут порог {USER_ARBITRATION_THRESHOLD} REJECTED — требуется вмешательство пользователя")
+                    logger.warning(
+                        "[CYCLE] Достигнут порог %s REJECTED - требуется вмешательство пользователя",
+                        USER_ARBITRATION_THRESHOLD,
+                    )
                     session.current_node = "plan_needs_user_arbitration"
                 else:
-                    print(f"[CYCLE] Авто-режим: ревьюер и редактор работают самостоятельно (без участия пользователя)")
+                    logger.info("[CYCLE] Авто-режим: ревьюер и редактор работают самостоятельно (без участия пользователя)")
                     session.current_node = "plan_needs_refine"
         except Exception as e:
-            print(f"[STEP] plan-validator | ERROR: {e}")
+            logger.error("[STEP] plan-validator | ERROR: %s", e)
             session.current_node = "plan_approved"
         self.storage.save_session(session)
         return session
@@ -510,10 +527,14 @@ class Orchestrator:
     def _step_plan_refine(self, session: SessionState) -> SessionState:
         """[🤖 ИИ] Шаг точечной редактуры плана"""
         separator = "=" * constants.DEBUG_TEXT_SEPARATOR_WIDTH
-        print(f"\n{separator}")
-        print(
-            f"[STEP] plan-refine | Цикл {session.validation_cycles}/{USER_ARBITRATION_THRESHOLD} (абс. лимит {MAX_VALIDATION_RETRIES})")
-        print(separator)
+        logger.info(separator)
+        logger.info(
+            "[STEP] plan-refine | Цикл %s/%s (абс. лимит %s)",
+            session.validation_cycles,
+            USER_ARBITRATION_THRESHOLD,
+            MAX_VALIDATION_RETRIES,
+        )
+        logger.info(separator)
 
         current_plan_full = session.full_plan_items
         if not current_plan_full:
@@ -536,22 +557,32 @@ class Orchestrator:
         currently_rejected = set(v_indices)
 
         # === DEBUG: вход ревьюера ===
-        print(f"\n[DEBUG/REVIEWER-INPUT] Текущий план ({len(current_plan_full)} тем):")
+        logger.debug("[DEBUG/REVIEWER-INPUT] Текущий план (%s тем):", len(current_plan_full))
         for i, item in enumerate(current_plan_full):
-            print(f"  [{i}] {item.get('theme')} | {(item.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...")
-        print(f"\n[DEBUG/REVIEWER-INPUT] Замечания валидатора:")
-        print(f"  invalid_indices: {v_indices}")
+            logger.debug(
+                "  [%s] %s | %s...",
+                i,
+                item.get("theme"),
+                (item.get("content") or "")[:constants.DEBUG_CONTENT_PREVIEW_CHARS],
+            )
+        logger.debug("[DEBUG/REVIEWER-INPUT] Замечания валидатора:")
+        logger.debug("  invalid_indices: %s", v_indices)
         for i, idx in enumerate(v_indices):
             reason = v_reasons[i] if i < len(v_reasons) else "?"
             sug = v_map.get(idx, {})
-            print(f"  - Тема {idx + 1}: {reason}")
+            logger.debug("  - Тема %s: %s", idx + 1, reason)
             if isinstance(sug, dict):
-                print(
-                    f"    Рекомендация валидатора: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...'")
+                logger.debug(
+                    "    Рекомендация валидатора: theme='%s', content='%s...'",
+                    sug.get("theme"),
+                    (sug.get("content") or "")[:constants.DEBUG_CONTENT_PREVIEW_CHARS],
+                )
             else:
-                print(f"    Рекомендация валидатора (raw): {sug}")
-        print(
-            f"\n[DEBUG/REVIEWER-INPUT] Комментарий пользователя: '{user_comment}'" if user_comment else "\n[DEBUG/REVIEWER-INPUT] Комментарий пользователя: <пустой>")
+                logger.debug("    Рекомендация валидатора (raw): %s", sug)
+        if user_comment:
+            logger.debug("[DEBUG/REVIEWER-INPUT] Комментарий пользователя: '%s'", user_comment)
+        else:
+            logger.debug("[DEBUG/REVIEWER-INPUT] Комментарий пользователя: <пустой>")
 
         # 1. REVIEWER
         reviewer_prompt = self.prompt_builder.build_plan_reviewer_prompt(
@@ -561,8 +592,7 @@ class Orchestrator:
         )
         reviewer_response = self.llm.generate_text(reviewer_prompt)
 
-        print(f"\n[DEBUG/REVIEWER-OUTPUT] Сырой ответ ревьюера:")
-        print(f"---START---\n{reviewer_response}\n---END---")
+        logger.debug("[DEBUG/REVIEWER-OUTPUT] Сырой ответ ревьюера:\n---START---\n%s\n---END---", reviewer_response)
 
         decisions = []
         try:
@@ -571,22 +601,27 @@ class Orchestrator:
                 raise ValueError("Пустой ответ от ревьюера")
             reviewer_result = json.loads(reviewer_json)
             decisions = reviewer_result.get("decisions", [])
-            print(f"[DEBUG/REVIEWER-OUTPUT] Распарсено решений: {len(decisions)}")
+            logger.debug("[DEBUG/REVIEWER-OUTPUT] Распарсено решений: %s", len(decisions))
         except Exception as e:
-            print(f"[STEP] plan-refine | Reviewer ERROR: {e}")
-            print(f"[FALLBACK] Ревьюер не дал валидного ответа — генерируем решения автоматически")
+            logger.error("[STEP] plan-refine | Reviewer ERROR: %s", e)
+            logger.warning("[FALLBACK] Ревьюер не дал валидного ответа - генерируем решения автоматически")
             decisions = self._build_fallback_decisions(
                 current_plan_full, currently_rejected, v_map, user_comment
             )
-            print(f"[FALLBACK] Сгенерировано {len(decisions)} решений")
+            logger.warning("[FALLBACK] Сгенерировано %s решений", len(decisions))
 
-        print(f"\n[DEBUG/REVIEWER-DECISIONS] Решения по каждой теме:")
+        logger.debug("[DEBUG/REVIEWER-DECISIONS] Решения по каждой теме:")
         for d in decisions:
             idx_print = d.get('index', '?')
             idx_print = idx_print + 1 if isinstance(idx_print, int) else '?'
-            print(f"  Тема {idx_print}: decision={d.get('decision')}, reason='{d.get('reason_for_decision', '')}'")
+            logger.debug(
+                "  Тема %s: decision=%s, reason='%s'",
+                idx_print,
+                d.get("decision"),
+                d.get("reason_for_decision", ""),
+            )
 
-        print("\n  --- ОБРАБОТКА РЕШЕНИЙ РЕВЬЮЕРА ---")
+        logger.info("--- ОБРАБОТКА РЕШЕНИЙ РЕВЬЮЕРА ---")
         items_to_revise = []
         new_approved_indices = []
 
@@ -595,13 +630,15 @@ class Orchestrator:
             decision = d.get("decision")
 
             if not isinstance(idx, int):
-                print(f"  [?] Пропускаем решение без валидного индекса: {d}")
+                logger.warning("  [?] Пропускаем решение без валидного индекса: %s", d)
                 continue
 
             # СТРАХОВКА: KEEP_ORIGINAL недопустим для отклонённых тем без user_feedback
             if decision == "KEEP_ORIGINAL" and idx in currently_rejected and not user_comment:
-                print(
-                    f"  [GUARD] Тема {idx + 1}: KEEP_ORIGINAL для отклонённой темы при пустом комментарии → принудительно REVISE")
+                logger.warning(
+                    "  [GUARD] Тема %s: KEEP_ORIGINAL для отклонённой темы при пустом комментарии -> принудительно REVISE",
+                    idx + 1,
+                )
                 decision = "REVISE"
                 d["decision"] = decision
 
@@ -619,7 +656,7 @@ class Orchestrator:
                     d["validator_suggestion"] = v_map.get(idx)
 
                 items_to_revise.append(d)
-                print(f"  [→] Тема {idx + 1}: REVISE → отправляем РЕДАКТОРУ")
+                logger.info("  [->] Тема %s: REVISE -> отправляем РЕДАКТОРУ", idx + 1)
 
             elif decision == "KEEP_ORIGINAL":
                 orig_data = d.get("original_data")
@@ -628,7 +665,11 @@ class Orchestrator:
 
                 if str(idx) in session.approved_plan_items:
                     del session.approved_plan_items[str(idx)]
-                print(f"  [!] Тема {idx + 1}: KEEP_ORIGINAL → '{orig_data.get('theme')}' (по требованию автора)")
+                logger.warning(
+                    "  [!] Тема %s: KEEP_ORIGINAL -> '%s' (по требованию автора)",
+                    idx + 1,
+                    orig_data.get("theme"),
+                )
 
                 hist_key = str(idx)
                 if hist_key not in session.revision_history:
@@ -647,34 +688,40 @@ class Orchestrator:
 
                 session.approved_plan_items[str(idx)] = orig_data
                 new_approved_indices.append(idx)
-                print(f"  [OK] Тема {idx + 1}: ALREADY_OK → '{orig_data.get('theme')}'")
+                logger.info("  [OK] Тема %s: ALREADY_OK -> '%s'", idx + 1, orig_data.get("theme"))
 
             else:
-                print(f"  [?] Тема {idx + 1}: неизвестное решение '{decision}' — пропускаем")
-        print("  ----------------------------------\n")
+                logger.warning("  [?] Тема %s: неизвестное решение '%s' - пропускаем", idx + 1, decision)
+        logger.info("----------------------------------")
 
         current_approved = set(session.approved_indices)
         session.approved_indices = list(current_approved | set(new_approved_indices))
 
         # 2. REFINER: исправляет все REVISE
         if items_to_revise:
-            print(f"[DEBUG/REFINER-INPUT] Редактор получает {len(items_to_revise)} тем(ы) на правку:")
+            logger.debug("[DEBUG/REFINER-INPUT] Редактор получает %s тем(ы) на правку:", len(items_to_revise))
             for it in items_to_revise:
                 idx = it.get("index")
                 orig = it.get("original_data", {}) or {}
                 sug = it.get("validator_suggestion")
                 uc = it.get("user_comment", "") or ""
                 idx_print = idx + 1 if isinstance(idx, int) else '?'
-                print(f"  --- Тема {idx_print} ---")
-                print(
-                    f"    original_data:        theme='{orig.get('theme')}', content='{(orig.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...'")
+                logger.debug("  --- Тема %s ---", idx_print)
+                logger.debug(
+                    "    original_data:        theme='%s', content='%s...'",
+                    orig.get("theme"),
+                    (orig.get("content") or "")[:constants.DEBUG_CONTENT_PREVIEW_CHARS],
+                )
                 if isinstance(sug, dict):
-                    print(
-                        f"    validator_suggestion: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...'")
+                    logger.debug(
+                        "    validator_suggestion: theme='%s', content='%s...'",
+                        sug.get("theme"),
+                        (sug.get("content") or "")[:constants.DEBUG_CONTENT_PREVIEW_CHARS],
+                    )
                 else:
-                    print(f"    validator_suggestion: {sug}")
-                print(f"    user_comment:         '{uc}'")
-                print(f"    reason_for_decision:  '{it.get('reason_for_decision', '')}'")
+                    logger.debug("    validator_suggestion: %s", sug)
+                logger.debug("    user_comment:         '%s'", uc)
+                logger.debug("    reason_for_decision:  '%s'", it.get("reason_for_decision", ""))
 
             refine_payload = json.dumps({"items_to_revise": items_to_revise}, ensure_ascii=False)
 
@@ -692,8 +739,7 @@ class Orchestrator:
             )
             response_raw = self.llm.generate_text(prompt)
 
-            print(f"\n[DEBUG/REFINER-OUTPUT] Сырой ответ редактора:")
-            print(f"---START---\n{response_raw}\n---END---")
+            logger.debug("[DEBUG/REFINER-OUTPUT] Сырой ответ редактора:\n---START---\n%s\n---END---", response_raw)
 
             try:
                 clean_json = response_raw.replace("```json", "").replace("```", "").strip()
@@ -702,7 +748,7 @@ class Orchestrator:
                 result = json.loads(clean_json)
                 revised_items = result.get("revised_items", [])
 
-                print(f"[DEBUG/REFINER-OUTPUT] Распарсено правок: {len(revised_items)}")
+                logger.debug("[DEBUG/REFINER-OUTPUT] Распарсено правок: %s", len(revised_items))
 
                 for item in revised_items:
                     idx = item.get("index")
@@ -710,15 +756,15 @@ class Orchestrator:
                     new_content = item.get("content")
 
                     if idx is None or not isinstance(idx, int):
-                        print(f"  [!] Пропускаем правку без индекса: {item}")
+                        logger.warning("  [!] Пропускаем правку без индекса: %s", item)
                         continue
 
                     if idx < len(current_plan_full):
                         current_plan_full[idx] = {"theme": new_theme, "content": new_content}
 
-                    print(f"  [OK] Тема {idx + 1} обновлена редактором:")
-                    print(f"       Тема: {new_theme}")
-                    print(f"       Сюжет: {new_content}")
+                    logger.info("  [OK] Тема %s обновлена редактором:", idx + 1)
+                    logger.info("       Тема: %s", new_theme)
+                    logger.info("       Сюжет: %s", new_content)
 
                     hist_key = str(idx)
                     if hist_key not in session.revision_history:
@@ -731,11 +777,11 @@ class Orchestrator:
                             f" + комментарий пользователя: {user_comment}" if user_comment else "")
                     })
             except Exception as e:
-                print(f"[STEP] plan-refine | Refiner ERROR: {e}")
+                logger.error("[STEP] plan-refine | Refiner ERROR: %s", e)
                 session.current_node = "failed"
                 return session
         else:
-            print(f"[DEBUG/REFINER] Редактор не вызывался — нет тем с REVISE")
+            logger.debug("[DEBUG/REFINER] Редактор не вызывался - нет тем с REVISE")
 
         # Сборка финального плана
         final_plan = []
@@ -748,12 +794,18 @@ class Orchestrator:
         session.full_plan_items = final_plan
         session.series_plan = [it["theme"] for it in final_plan]
 
-        print(f"\n[DEBUG/POST-REFINE] План, который уйдёт на повторную валидацию:")
+        logger.debug("[DEBUG/POST-REFINE] План, который уйдет на повторную валидацию:")
         for i, item in enumerate(final_plan):
             approved = "✓" if str(i) in session.approved_plan_items else " "
-            print(f"  [{approved}] Тема {i + 1}: '{item.get('theme')}' | {(item.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...")
-        print(f"  approved_indices: {session.approved_indices}")
-        print(f"{separator}\n")
+            logger.debug(
+                "  [%s] Тема %s: '%s' | %s...",
+                approved,
+                i + 1,
+                item.get("theme"),
+                (item.get("content") or "")[:constants.DEBUG_CONTENT_PREVIEW_CHARS],
+            )
+        logger.debug("  approved_indices: %s", session.approved_indices)
+        logger.debug(separator)
 
         session.user_feedback = None
         session.current_node = "series_planned"

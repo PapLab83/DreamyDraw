@@ -1,10 +1,13 @@
 import requests
 import os
 import time
+import logging
 from typing import List
 from src.providers.base import BaseLLMProvider, BaseImageProvider
 from src.config.settings import settings
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 class GPTunnelLLMProvider(BaseLLMProvider):
     def __init__(self):
@@ -45,7 +48,7 @@ class GPTunnelMediaProvider(BaseImageProvider):
             "ar": settings.IMAGE_ASPECT_RATIO
         }
 
-        print(f"Отправка запроса в CreativeLab API (модель: {self.model})...")
+        logger.info("Отправка запроса в CreativeLab API (модель: %s)...", self.model)
         response = requests.post(create_url, headers=headers, json=payload)
         response.raise_for_status()
         
@@ -55,7 +58,7 @@ class GPTunnelMediaProvider(BaseImageProvider):
         if not task_id:
             raise ValueError(f"Не удалось получить task_id. Ответ: {task_data}")
 
-        print(f"Задача создана. ID: {task_id}. Ожидание результата...")
+        logger.info("Задача создана. ID: %s. Ожидание результата...", task_id)
 
         # 2. Опрос результата (Polling)
         result_url = f"{self.base_url}/result"
@@ -80,13 +83,14 @@ class GPTunnelMediaProvider(BaseImageProvider):
                 elif status == "error" or status == "failed":
                     raise ValueError(f"Ошибка генерации на стороне сервера (статус: {status}): {res_data}")
                 
-                print(f"Статус: {status}... ждем {settings.MEDIA_POLL_INTERVAL_SECONDS} сек")
+                logger.debug("Статус: %s... ждем %s сек", status, settings.MEDIA_POLL_INTERVAL_SECONDS)
                 time.sleep(settings.MEDIA_POLL_INTERVAL_SECONDS)
                 attempt += 1
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                print(
-                    f"Ошибка соединения при проверке статуса: {e}. "
-                    f"Пробую еще раз через {settings.MEDIA_RETRY_INTERVAL_SECONDS} сек..."
+                logger.warning(
+                    "Ошибка соединения при проверке статуса: %s. Пробую еще раз через %s сек...",
+                    e,
+                    settings.MEDIA_RETRY_INTERVAL_SECONDS,
                 )
                 time.sleep(settings.MEDIA_RETRY_INTERVAL_SECONDS)
                 attempt += 1
@@ -94,7 +98,7 @@ class GPTunnelMediaProvider(BaseImageProvider):
         if not image_url:
             raise TimeoutError("Превышено время ожидания генерации изображения.")
 
-        print(f"Изображение готово! Скачивание...")
+        logger.info("Изображение готово! Скачивание...")
 
         # 3. Скачивание
         img_res = requests.get(image_url)
