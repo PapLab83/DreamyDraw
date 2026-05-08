@@ -78,3 +78,8 @@ class SessionState(BaseModel):
     user_feedback: Optional[str] = None  # Обратная связь от пользователя
     validator_feedback: str = "{}"  # Результаты последней валидации (JSON string)
     approved_indices: List[int] = []  # Список индексов одобренных тем
+    # Счетчик циклов валидатор ↔ редактор (REJECTED). Сбрасывается при полном одобрении плана.
+    validation_cycles: int = 0
+
+    # История правок по каждой теме: {str(index): [{"source": str, "theme": str, "content": str, "note": str}, ...]}
+    revision_history: dict = {}
