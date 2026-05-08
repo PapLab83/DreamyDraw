@@ -480,10 +480,38 @@ class Orchestrator:
         self.storage.save_session(session)
         return session
 
+    def _build_fallback_decisions(self, current_plan_full, currently_rejected, v_map, user_comment):
+        """Fallback: если ревьюер не ответил, генерируем разумные решения сами.
+        Логика: все отклонённые темы → REVISE (редактор разберётся), остальные → ALREADY_OK."""
+        decisions = []
+        for i, item in enumerate(current_plan_full):
+            if i in currently_rejected:
+                suggestion = v_map.get(i)
+                decisions.append({
+                    "index": i,
+                    "decision": "REVISE",
+                    "original_data": item,
+                    "validator_suggestion": suggestion if isinstance(suggestion, dict) else None,
+                    "user_comment": user_comment,
+                    "reason_for_decision": "[FALLBACK] Ревьюер не ответил, отправляем редактору"
+                })
+            else:
+                decisions.append({
+                    "index": i,
+                    "decision": "ALREADY_OK",
+                    "original_data": item,
+                    "validator_suggestion": None,
+                    "user_comment": "",
+                    "reason_for_decision": "[FALLBACK] Тема не в списке invalid_indices"
+                })
+        return decisions
+
     def _step_plan_refine(self, session: SessionState) -> SessionState:
         """[🤖 ИИ] Шаг точечной редактуры плана"""
+        print(f"\n{'=' * 60}")
         print(
-            f"[STEP] plan-refine | Анализ решений и исправление плана (цикл {session.validation_cycles}/{USER_ARBITRATION_THRESHOLD}, абс. лимит {MAX_VALIDATION_RETRIES})")
+            f"[STEP] plan-refine | Цикл {session.validation_cycles}/{USER_ARBITRATION_THRESHOLD} (абс. лимит {MAX_VALIDATION_RETRIES})")
+        print(f"{'=' * 60}")
 
         current_plan_full = session.full_plan_items
         if not current_plan_full:
@@ -493,10 +521,7 @@ class Orchestrator:
         validator_feedback = getattr(session, "validator_feedback", "{}")
         user_comment = session.user_feedback if session.user_feedback is not None else ""
 
-        if user_comment:
-            print(f"  [USER] Получен комментарий пользователя: {user_comment}")
-
-        # Парсим фидбек валидатора заранее — нам нужны invalid_indices
+        # Парсим фидбек валидатора заранее
         v_feedback = {}
         try:
             v_feedback = json.loads(validator_feedback)
@@ -504,8 +529,27 @@ class Orchestrator:
             pass
         v_suggestions = v_feedback.get("suggestions", [])
         v_indices = v_feedback.get("invalid_indices", [])
+        v_reasons = v_feedback.get("reasons", [])
         v_map = {idx: v_suggestions[i] for i, idx in enumerate(v_indices) if i < len(v_suggestions)}
         currently_rejected = set(v_indices)
+
+        # === DEBUG: вход ревьюера ===
+        print(f"\n[DEBUG/REVIEWER-INPUT] Текущий план ({len(current_plan_full)} тем):")
+        for i, item in enumerate(current_plan_full):
+            print(f"  [{i}] {item.get('theme')} | {(item.get('content') or '')[:80]}...")
+        print(f"\n[DEBUG/REVIEWER-INPUT] Замечания валидатора:")
+        print(f"  invalid_indices: {v_indices}")
+        for i, idx in enumerate(v_indices):
+            reason = v_reasons[i] if i < len(v_reasons) else "?"
+            sug = v_map.get(idx, {})
+            print(f"  - Тема {idx + 1}: {reason}")
+            if isinstance(sug, dict):
+                print(
+                    f"    Рекомендация валидатора: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:80]}...'")
+            else:
+                print(f"    Рекомендация валидатора (raw): {sug}")
+        print(
+            f"\n[DEBUG/REVIEWER-INPUT] Комментарий пользователя: '{user_comment}'" if user_comment else "\n[DEBUG/REVIEWER-INPUT] Комментарий пользователя: <пустой>")
 
         # 1. REVIEWER
         reviewer_prompt = self.prompt_builder.build_plan_reviewer_prompt(
@@ -515,15 +559,32 @@ class Orchestrator:
         )
         reviewer_response = self.llm.generate_text(reviewer_prompt)
 
+        print(f"\n[DEBUG/REVIEWER-OUTPUT] Сырой ответ ревьюера:")
+        print(f"---START---\n{reviewer_response}\n---END---")
+
+        decisions = []
         try:
             reviewer_json = reviewer_response.replace("```json", "").replace("```", "").strip()
+            if not reviewer_json:
+                raise ValueError("Пустой ответ от ревьюера")
             reviewer_result = json.loads(reviewer_json)
             decisions = reviewer_result.get("decisions", [])
+            print(f"[DEBUG/REVIEWER-OUTPUT] Распарсено решений: {len(decisions)}")
         except Exception as e:
             print(f"[STEP] plan-refine | Reviewer ERROR: {e}")
-            decisions = []
+            print(f"[FALLBACK] Ревьюер не дал валидного ответа — генерируем решения автоматически")
+            decisions = self._build_fallback_decisions(
+                current_plan_full, currently_rejected, v_map, user_comment
+            )
+            print(f"[FALLBACK] Сгенерировано {len(decisions)} решений")
 
-        print("  --- РЕШЕНИЯ РЕВЬЮЕРА ---")
+        print(f"\n[DEBUG/REVIEWER-DECISIONS] Решения по каждой теме:")
+        for d in decisions:
+            idx_print = d.get('index', '?')
+            idx_print = idx_print + 1 if isinstance(idx_print, int) else '?'
+            print(f"  Тема {idx_print}: decision={d.get('decision')}, reason='{d.get('reason_for_decision', '')}'")
+
+        print("\n  --- ОБРАБОТКА РЕШЕНИЙ РЕВЬЮЕРА ---")
         items_to_revise = []
         new_approved_indices = []
 
@@ -531,38 +592,32 @@ class Orchestrator:
             idx = d.get("index")
             decision = d.get("decision")
 
-            # === СТРАХОВКА: KEEP_ORIGINAL недопустим для отклонённых тем без user_feedback ===
+            if not isinstance(idx, int):
+                print(f"  [?] Пропускаем решение без валидного индекса: {d}")
+                continue
+
+            # СТРАХОВКА: KEEP_ORIGINAL недопустим для отклонённых тем без user_feedback
             if decision == "KEEP_ORIGINAL" and idx in currently_rejected and not user_comment:
                 print(
-                    f"  [GUARD] Тема {idx + 1}: ревьюер выбрал KEEP_ORIGINAL, но валидатор её отклонил, а пользователь не вмешался → принудительно отправляем РЕДАКТОРУ")
-                decision = "REVISE_BY_USER"
+                    f"  [GUARD] Тема {idx + 1}: KEEP_ORIGINAL для отклонённой темы при пустом комментарии → принудительно REVISE")
+                decision = "REVISE"
                 d["decision"] = decision
-            # =================================================================================
 
-            if decision == "ACCEPT_SUGGESTION":
-                suggestion = d.get("validator_suggestion")
-                if not (suggestion and isinstance(suggestion, dict)):
-                    suggestion = v_map.get(idx)
+            if decision == "REVISE":
+                if str(idx) in session.approved_plan_items:
+                    del session.approved_plan_items[str(idx)]
 
-                if suggestion and isinstance(suggestion, dict):
-                    session.approved_plan_items[str(idx)] = {
-                        "theme": suggestion.get("theme", ""),
-                        "content": suggestion.get("content", "")
-                    }
-                    new_approved_indices.append(idx)
-                    print(f"  [OK] Тема {idx + 1}: Принято решение ВАЛИДАТОРА (Название: {suggestion.get('theme')})")
+                orig = d.get("original_data", {})
+                if not (orig and isinstance(orig, dict)) or not orig.get("content"):
+                    if idx < len(current_plan_full):
+                        orig = current_plan_full[idx]
+                        d["original_data"] = orig
 
-                    hist_key = str(idx)
-                    if hist_key not in session.revision_history:
-                        session.revision_history[hist_key] = []
-                    session.revision_history[hist_key].append({
-                        "source": "reviewer:accept_suggestion",
-                        "theme": suggestion.get("theme", ""),
-                        "content": suggestion.get("content", ""),
-                        "note": "Ревьюер принял рекомендацию валидатора"
-                    })
-                else:
-                    print(f"  [!] Ошибка: Не удалось найти текст рекомендации для темы {idx + 1}")
+                if not d.get("validator_suggestion"):
+                    d["validator_suggestion"] = v_map.get(idx)
+
+                items_to_revise.append(d)
+                print(f"  [→] Тема {idx + 1}: REVISE → отправляем РЕДАКТОРУ")
 
             elif decision == "KEEP_ORIGINAL":
                 orig_data = d.get("original_data")
@@ -571,7 +626,7 @@ class Orchestrator:
 
                 if str(idx) in session.approved_plan_items:
                     del session.approved_plan_items[str(idx)]
-                print(f"  [!] Тема {idx + 1}: Оставлен ОРИГИНАЛ по запросу автора (Название: {orig_data.get('theme')})")
+                print(f"  [!] Тема {idx + 1}: KEEP_ORIGINAL → '{orig_data.get('theme')}' (по требованию автора)")
 
                 hist_key = str(idx)
                 if hist_key not in session.revision_history:
@@ -590,30 +645,35 @@ class Orchestrator:
 
                 session.approved_plan_items[str(idx)] = orig_data
                 new_approved_indices.append(idx)
-                print(f"  [OK] Тема {idx + 1}: Уже ОДОБРЕНО ранее (Название: {orig_data.get('theme')})")
+                print(f"  [OK] Тема {idx + 1}: ALREADY_OK → '{orig_data.get('theme')}'")
 
-            elif decision == "REVISE_BY_USER":
-                if str(idx) in session.approved_plan_items:
-                    del session.approved_plan_items[str(idx)]
-
-                orig = d.get("original_data", {})
-                if not (orig and isinstance(orig, dict)) or not orig.get("content"):
-                    if idx < len(current_plan_full):
-                        orig = current_plan_full[idx]
-                        d["original_data"] = orig
-
-                if not d.get("validator_suggestion"):
-                    d["validator_suggestion"] = v_map.get(idx)
-
-                items_to_revise.append(d)
-                print(f"  [!] Тема {idx + 1}: Отправлено РЕДАКТОРУ на правку (Название: {orig.get('theme')})")
-        print("  -------------------------")
+            else:
+                print(f"  [?] Тема {idx + 1}: неизвестное решение '{decision}' — пропускаем")
+        print("  ----------------------------------\n")
 
         current_approved = set(session.approved_indices)
         session.approved_indices = list(current_approved | set(new_approved_indices))
 
-        # 3. REFINER: исправляет только те, что REVISE_BY_USER
+        # 2. REFINER: исправляет все REVISE
         if items_to_revise:
+            print(f"[DEBUG/REFINER-INPUT] Редактор получает {len(items_to_revise)} тем(ы) на правку:")
+            for it in items_to_revise:
+                idx = it.get("index")
+                orig = it.get("original_data", {}) or {}
+                sug = it.get("validator_suggestion")
+                uc = it.get("user_comment", "") or ""
+                idx_print = idx + 1 if isinstance(idx, int) else '?'
+                print(f"  --- Тема {idx_print} ---")
+                print(
+                    f"    original_data:        theme='{orig.get('theme')}', content='{(orig.get('content') or '')[:80]}...'")
+                if isinstance(sug, dict):
+                    print(
+                        f"    validator_suggestion: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:80]}...'")
+                else:
+                    print(f"    validator_suggestion: {sug}")
+                print(f"    user_comment:         '{uc}'")
+                print(f"    reason_for_decision:  '{it.get('reason_for_decision', '')}'")
+
             refine_payload = json.dumps({"items_to_revise": items_to_revise}, ensure_ascii=False)
 
             refine_plan_context = []
@@ -630,20 +690,31 @@ class Orchestrator:
             )
             response_raw = self.llm.generate_text(prompt)
 
+            print(f"\n[DEBUG/REFINER-OUTPUT] Сырой ответ редактора:")
+            print(f"---START---\n{response_raw}\n---END---")
+
             try:
                 clean_json = response_raw.replace("```json", "").replace("```", "").strip()
+                if not clean_json:
+                    raise ValueError("Пустой ответ от редактора")
                 result = json.loads(clean_json)
                 revised_items = result.get("revised_items", [])
+
+                print(f"[DEBUG/REFINER-OUTPUT] Распарсено правок: {len(revised_items)}")
 
                 for item in revised_items:
                     idx = item.get("index")
                     new_theme = item.get("theme")
                     new_content = item.get("content")
 
+                    if idx is None or not isinstance(idx, int):
+                        print(f"  [!] Пропускаем правку без индекса: {item}")
+                        continue
+
                     if idx < len(current_plan_full):
                         current_plan_full[idx] = {"theme": new_theme, "content": new_content}
 
-                    print(f"  [OK] Тема {idx + 1} подготовлена (исправлена редактором):")
+                    print(f"  [OK] Тема {idx + 1} обновлена редактором:")
                     print(f"       Тема: {new_theme}")
                     print(f"       Сюжет: {new_content}")
 
@@ -661,7 +732,10 @@ class Orchestrator:
                 print(f"[STEP] plan-refine | Refiner ERROR: {e}")
                 session.current_node = "failed"
                 return session
+        else:
+            print(f"[DEBUG/REFINER] Редактор не вызывался — нет тем с REVISE")
 
+        # Сборка финального плана
         final_plan = []
         for i in range(len(session.series_plan)):
             item = session.approved_plan_items.get(str(i))
@@ -671,6 +745,13 @@ class Orchestrator:
 
         session.full_plan_items = final_plan
         session.series_plan = [it["theme"] for it in final_plan]
+
+        print(f"\n[DEBUG/POST-REFINE] План, который уйдёт на повторную валидацию:")
+        for i, item in enumerate(final_plan):
+            approved = "✓" if str(i) in session.approved_plan_items else " "
+            print(f"  [{approved}] Тема {i + 1}: '{item.get('theme')}' | {(item.get('content') or '')[:80]}...")
+        print(f"  approved_indices: {session.approved_indices}")
+        print(f"{'=' * 60}\n")
 
         session.user_feedback = None
         session.current_node = "series_planned"
