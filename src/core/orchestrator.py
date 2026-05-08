@@ -481,6 +481,7 @@ class Orchestrator:
         return session
 
     def _step_plan_refine(self, session: SessionState) -> SessionState:
+        """[🤖 ИИ] Шаг точечной редактуры плана"""
         print(
             f"[STEP] plan-refine | Анализ решений и исправление плана (цикл {session.validation_cycles}/{USER_ARBITRATION_THRESHOLD}, абс. лимит {MAX_VALIDATION_RETRIES})")
 
@@ -494,6 +495,17 @@ class Orchestrator:
 
         if user_comment:
             print(f"  [USER] Получен комментарий пользователя: {user_comment}")
+
+        # Парсим фидбек валидатора заранее — нам нужны invalid_indices
+        v_feedback = {}
+        try:
+            v_feedback = json.loads(validator_feedback)
+        except:
+            pass
+        v_suggestions = v_feedback.get("suggestions", [])
+        v_indices = v_feedback.get("invalid_indices", [])
+        v_map = {idx: v_suggestions[i] for i, idx in enumerate(v_indices) if i < len(v_suggestions)}
+        currently_rejected = set(v_indices)
 
         # 1. REVIEWER
         reviewer_prompt = self.prompt_builder.build_plan_reviewer_prompt(
@@ -515,18 +527,17 @@ class Orchestrator:
         items_to_revise = []
         new_approved_indices = []
 
-        v_feedback = {}
-        try:
-            v_feedback = json.loads(validator_feedback)
-        except:
-            pass
-        v_suggestions = v_feedback.get("suggestions", [])
-        v_indices = v_feedback.get("invalid_indices", [])
-        v_map = {idx: v_suggestions[i] for i, idx in enumerate(v_indices) if i < len(v_suggestions)}
-
         for d in decisions:
             idx = d.get("index")
             decision = d.get("decision")
+
+            # === СТРАХОВКА: KEEP_ORIGINAL недопустим для отклонённых тем без user_feedback ===
+            if decision == "KEEP_ORIGINAL" and idx in currently_rejected and not user_comment:
+                print(
+                    f"  [GUARD] Тема {idx + 1}: ревьюер выбрал KEEP_ORIGINAL, но валидатор её отклонил, а пользователь не вмешался → принудительно отправляем РЕДАКТОРУ")
+                decision = "REVISE_BY_USER"
+                d["decision"] = decision
+            # =================================================================================
 
             if decision == "ACCEPT_SUGGESTION":
                 suggestion = d.get("validator_suggestion")
@@ -601,7 +612,7 @@ class Orchestrator:
         current_approved = set(session.approved_indices)
         session.approved_indices = list(current_approved | set(new_approved_indices))
 
-        # 3. REFINER
+        # 3. REFINER: исправляет только те, что REVISE_BY_USER
         if items_to_revise:
             refine_payload = json.dumps({"items_to_revise": items_to_revise}, ensure_ascii=False)
 
@@ -661,7 +672,6 @@ class Orchestrator:
         session.full_plan_items = final_plan
         session.series_plan = [it["theme"] for it in final_plan]
 
-        # Очищаем фидбек пользователя (он использован)
         session.user_feedback = None
         session.current_node = "series_planned"
 
