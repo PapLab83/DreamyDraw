@@ -1,5 +1,5 @@
-import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from src.config import constants
 
 class Settings(BaseSettings):
     # Провайдеры (mock или openai/dalle)
@@ -14,7 +14,31 @@ class Settings(BaseSettings):
     IMAGE_MODEL: str = "nano-banana-2" # dall-e-3, nano-banana, nano-banana-2
     
     # Дефолтные значения
-    DEFAULT_COUNT: int = 1
+    DEFAULT_COUNT: int = constants.DEFAULT_COUNT
+    MAX_COUNT: int = constants.MAX_COUNT
+
+    # Продуктовые лимиты
+    TARGET_AGE_MIN: int = constants.TARGET_AGE_MIN
+    TARGET_AGE_MAX: int = constants.TARGET_AGE_MAX
+    STORY_SENTENCES_MIN: int = constants.STORY_SENTENCES_MIN
+    STORY_SENTENCES_MAX: int = constants.STORY_SENTENCES_MAX
+    MIN_QUESTIONS: int = constants.MIN_QUESTIONS
+    MAX_QUESTIONS: int = constants.MAX_QUESTIONS
+
+    # Пороги пайплайна
+    USER_ARBITRATION_THRESHOLD: int = constants.USER_ARBITRATION_THRESHOLD
+    MAX_VALIDATION_RETRIES: int = constants.MAX_VALIDATION_RETRIES
+    MIN_CHILD_INDEX: float = constants.MIN_CHILD_INDEX
+    DEFAULT_IDEA_CHILD_INDEX: float = constants.DEFAULT_IDEA_CHILD_INDEX
+    FALLBACK_IDEA_CHILD_INDEX: float = constants.FALLBACK_IDEA_CHILD_INDEX
+    SCORE_NORMALIZATION_EPSILON: float = constants.SCORE_NORMALIZATION_EPSILON
+
+    # Настройки провайдеров
+    HTTP_REQUEST_TIMEOUT_SECONDS: int = constants.HTTP_REQUEST_TIMEOUT_SECONDS
+    MEDIA_POLL_MAX_ATTEMPTS: int = constants.MEDIA_POLL_MAX_ATTEMPTS
+    MEDIA_POLL_INTERVAL_SECONDS: int = constants.MEDIA_POLL_INTERVAL_SECONDS
+    MEDIA_RETRY_INTERVAL_SECONDS: int = constants.MEDIA_RETRY_INTERVAL_SECONDS
+    IMAGE_ASPECT_RATIO: str = constants.IMAGE_ASPECT_RATIO
     
     # Пути
     OUTPUT_DIR: str = "output"

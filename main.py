@@ -1,6 +1,7 @@
 from src.utils.cli_parser import get_cli_parser, parse_count
 from src.models.schemas import GenerationRequest, TruthMode, TextStyle, ImageStyle, WorkMode
-from src.core.orchestrator import Orchestrator, USER_ARBITRATION_THRESHOLD
+from src.config import constants
+from src.core.orchestrator import Orchestrator
 from src.core.factory import ProviderFactory
 from src.storage.json_storage import JSONStorage
 from src.config.settings import settings
@@ -70,12 +71,13 @@ def main():
 
         # Арбитраж пользователя — после 3+ REJECTED
         if session.current_node == "plan_needs_user_arbitration":
-            print("\n" + "=" * 60)
+            separator = "=" * constants.DEBUG_TEXT_SEPARATOR_WIDTH
+            print("\n" + separator)
             print(f"[!] АРБИТРАЖ ПОЛЬЗОВАТЕЛЯ")
             print(f"Валидатор отклонил план уже {session.validation_cycles} раз(а).")
-            print(f"Порог автоматических циклов ({USER_ARBITRATION_THRESHOLD}) достигнут.")
+            print(f"Порог автоматических циклов ({settings.USER_ARBITRATION_THRESHOLD}) достигнут.")
             print("Спор между валидатором и редактором требует вашего вмешательства.")
-            print("=" * 60)
+            print(separator)
 
             # Определяем проблемные темы из последнего фидбека валидатора
             try:
@@ -96,7 +98,7 @@ def main():
             print()
             user_input = input("Ваш ответ: ").strip()
 
-            if user_input.lower() in ["хватит", "достаточно", "больше не", "ок", "хорошо"]:
+            if user_input.lower() in constants.FORCE_APPROVE_COMMANDS:
                 print("[USER] Принудительное одобрение текущего варианта.")
                 # Помечаем все проблемные темы как одобренные принудительно
                 for idx in problem_indices:

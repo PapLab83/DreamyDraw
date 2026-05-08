@@ -42,7 +42,7 @@ class GPTunnelMediaProvider(BaseImageProvider):
         payload = {
             "model": self.model,
             "prompt": f"{prompt}. Please include this text on the image: {overlay_text}",
-            "ar": "1:1"
+            "ar": settings.IMAGE_ASPECT_RATIO
         }
 
         print(f"Отправка запроса в CreativeLab API (модель: {self.model})...")
@@ -59,13 +59,17 @@ class GPTunnelMediaProvider(BaseImageProvider):
 
         # 2. Опрос результата (Polling)
         result_url = f"{self.base_url}/result"
-        max_attempts = 30
         attempt = 0
         image_url = None
 
-        while attempt < max_attempts:
+        while attempt < settings.MEDIA_POLL_MAX_ATTEMPTS:
             try:
-                res = requests.post(result_url, headers=headers, json={"task_id": task_id}, timeout=10)
+                res = requests.post(
+                    result_url,
+                    headers=headers,
+                    json={"task_id": task_id},
+                    timeout=settings.HTTP_REQUEST_TIMEOUT_SECONDS
+                )
                 res.raise_for_status()
                 res_data = res.json()
                 
@@ -76,12 +80,15 @@ class GPTunnelMediaProvider(BaseImageProvider):
                 elif status == "error" or status == "failed":
                     raise ValueError(f"Ошибка генерации на стороне сервера (статус: {status}): {res_data}")
                 
-                print(f"Статус: {status}... ждем 25 сек")
-                time.sleep(25)
+                print(f"Статус: {status}... ждем {settings.MEDIA_POLL_INTERVAL_SECONDS} сек")
+                time.sleep(settings.MEDIA_POLL_INTERVAL_SECONDS)
                 attempt += 1
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                print(f"Ошибка соединения при проверке статуса: {e}. Пробую еще раз через 10 сек...")
-                time.sleep(10)
+                print(
+                    f"Ошибка соединения при проверке статуса: {e}. "
+                    f"Пробую еще раз через {settings.MEDIA_RETRY_INTERVAL_SECONDS} сек..."
+                )
+                time.sleep(settings.MEDIA_RETRY_INTERVAL_SECONDS)
                 attempt += 1
 
         if not image_url:

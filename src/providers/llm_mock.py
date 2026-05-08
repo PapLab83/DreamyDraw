@@ -1,5 +1,6 @@
 import os
 from typing import List
+from src.config import constants
 from src.providers.base import BaseLLMProvider
 
 class LLMMockProvider(BaseLLMProvider):
@@ -24,5 +25,5 @@ class LLMMockProvider(BaseLLMProvider):
         if "Вопросы:" in self.mock_content:
             q_part = self.mock_content.split("Вопросы:")[1]
             questions = [q.strip() for q in q_part.strip().split("\n") if q.strip()]
-            return questions[:3]
+            return questions[:constants.MAX_QUESTIONS]
         return ["Как зовут лису?", "Где она живет?"]

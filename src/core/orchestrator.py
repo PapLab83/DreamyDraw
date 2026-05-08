@@ -1,16 +1,15 @@
 import os
 import json
-import time
 from typing import List
+from src.config import constants
+from src.config.settings import settings
 from src.models.schemas import GenerationRequest, SessionState, StoryItem, WorkMode
 from src.providers.base import BaseLLMProvider, BaseImageProvider
 from src.storage.json_storage import JSONStorage
 from src.core.prompt_builder import PromptBuilder
 
-# Порог автоматических циклов валидатор↔редактор до подключения пользователя
-USER_ARBITRATION_THRESHOLD = 3
-# Абсолютный потолок попыток (защита от бесконечного цикла)
-MAX_VALIDATION_RETRIES = 5
+USER_ARBITRATION_THRESHOLD = settings.USER_ARBITRATION_THRESHOLD
+MAX_VALIDATION_RETRIES = settings.MAX_VALIDATION_RETRIES
 
 
 class Orchestrator:
@@ -128,7 +127,8 @@ class Orchestrator:
         for i in range(request.count):
             story = session.stories[i]
             if not story.image_path:
-                image_path = os.path.join("output", session.session_id, f"story_{i}.png")
+                image_filename = constants.STORY_IMAGE_FILENAME_TEMPLATE.format(index=i)
+                image_path = os.path.join(self.storage.base_dir, session.session_id, image_filename)
                 prompt = self.prompt_builder.build_image_prompt(story.text, request.image_style.value)
                 story.image_path = self.image.generate_image(prompt, story.text, image_path)
                 self.storage.save_session(session)
@@ -211,7 +211,7 @@ class Orchestrator:
                     session.ideas_pool[idx].child_index = score_data.get("child_index", 0.0)
 
             original_count = len(session.ideas_pool)
-            session.ideas_pool = [it for it in session.ideas_pool if it.child_index >= 0.3]
+            session.ideas_pool = [it for it in session.ideas_pool if it.child_index >= settings.MIN_CHILD_INDEX]
             if len(session.ideas_pool) < original_count:
                 print(f"  [!] Отсеяно {original_count - len(session.ideas_pool)} небезопасных идей.")
 
@@ -220,12 +220,12 @@ class Orchestrator:
                 from src.models.schemas import Idea
                 session.ideas_pool = [
                     Idea(title="Прогулка в лесу", summary="Маленький лис гуляет по лесу и изучает природу.")]
-                session.ideas_pool[0].child_index = 0.7
+                session.ideas_pool[0].child_index = settings.FALLBACK_IDEA_CHILD_INDEX
 
         except Exception as e:
             print(f"  [ERROR] idea-scoring: {e}")
             for it in session.ideas_pool:
-                it.child_index = 0.5
+                it.child_index = settings.DEFAULT_IDEA_CHILD_INDEX
 
         return session
 
@@ -235,13 +235,11 @@ class Orchestrator:
 
         print(f"  [STEP] score-normalize | Линейная нормализация весов")
 
-        epsilon = 0.2
-
         try:
-            total_score = sum(it.child_index + epsilon for it in session.ideas_pool)
+            total_score = sum(it.child_index + settings.SCORE_NORMALIZATION_EPSILON for it in session.ideas_pool)
 
             for it in session.ideas_pool:
-                it.normalized_weight = (it.child_index + epsilon) / total_score
+                it.normalized_weight = (it.child_index + settings.SCORE_NORMALIZATION_EPSILON) / total_score
 
         except Exception as e:
             print(f"  [ERROR] score-normalize: {e}")
@@ -250,7 +248,7 @@ class Orchestrator:
 
         return session
 
-    def _step_idea_sampler(self, session: SessionState, count: int = 1) -> List[dict]:
+    def _step_idea_sampler(self, session: SessionState, count: int = constants.DEFAULT_SAMPLER_COUNT) -> List[dict]:
         if not session.ideas_pool:
             return []
 
@@ -356,8 +354,8 @@ class Orchestrator:
         already_approved_indices = []
         for i, item in enumerate(current_plan_full):
             if i in approved_indices:
-                content_preview = item.get('content', '')[:100] + "..." if len(
-                    item.get('content', '')) > 100 else item.get('content', '')
+                content_preview = item.get('content', '')[:constants.VALIDATOR_CONTENT_PREVIEW_CHARS] + "..." if len(
+                    item.get('content', '')) > constants.VALIDATOR_CONTENT_PREVIEW_CHARS else item.get('content', '')
                 print(f"  [OK] Тема {i + 1} ({item.get('theme', 'N/A')}): Уже одобрена. ({content_preview})")
                 already_approved_indices.append(i)
             else:
@@ -511,10 +509,11 @@ class Orchestrator:
 
     def _step_plan_refine(self, session: SessionState) -> SessionState:
         """[🤖 ИИ] Шаг точечной редактуры плана"""
-        print(f"\n{'=' * 60}")
+        separator = "=" * constants.DEBUG_TEXT_SEPARATOR_WIDTH
+        print(f"\n{separator}")
         print(
             f"[STEP] plan-refine | Цикл {session.validation_cycles}/{USER_ARBITRATION_THRESHOLD} (абс. лимит {MAX_VALIDATION_RETRIES})")
-        print(f"{'=' * 60}")
+        print(separator)
 
         current_plan_full = session.full_plan_items
         if not current_plan_full:
@@ -539,7 +538,7 @@ class Orchestrator:
         # === DEBUG: вход ревьюера ===
         print(f"\n[DEBUG/REVIEWER-INPUT] Текущий план ({len(current_plan_full)} тем):")
         for i, item in enumerate(current_plan_full):
-            print(f"  [{i}] {item.get('theme')} | {(item.get('content') or '')[:80]}...")
+            print(f"  [{i}] {item.get('theme')} | {(item.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...")
         print(f"\n[DEBUG/REVIEWER-INPUT] Замечания валидатора:")
         print(f"  invalid_indices: {v_indices}")
         for i, idx in enumerate(v_indices):
@@ -548,7 +547,7 @@ class Orchestrator:
             print(f"  - Тема {idx + 1}: {reason}")
             if isinstance(sug, dict):
                 print(
-                    f"    Рекомендация валидатора: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:80]}...'")
+                    f"    Рекомендация валидатора: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...'")
             else:
                 print(f"    Рекомендация валидатора (raw): {sug}")
         print(
@@ -668,10 +667,10 @@ class Orchestrator:
                 idx_print = idx + 1 if isinstance(idx, int) else '?'
                 print(f"  --- Тема {idx_print} ---")
                 print(
-                    f"    original_data:        theme='{orig.get('theme')}', content='{(orig.get('content') or '')[:80]}...'")
+                    f"    original_data:        theme='{orig.get('theme')}', content='{(orig.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...'")
                 if isinstance(sug, dict):
                     print(
-                        f"    validator_suggestion: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:80]}...'")
+                        f"    validator_suggestion: theme='{sug.get('theme')}', content='{(sug.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...'")
                 else:
                     print(f"    validator_suggestion: {sug}")
                 print(f"    user_comment:         '{uc}'")
@@ -752,9 +751,9 @@ class Orchestrator:
         print(f"\n[DEBUG/POST-REFINE] План, который уйдёт на повторную валидацию:")
         for i, item in enumerate(final_plan):
             approved = "✓" if str(i) in session.approved_plan_items else " "
-            print(f"  [{approved}] Тема {i + 1}: '{item.get('theme')}' | {(item.get('content') or '')[:80]}...")
+            print(f"  [{approved}] Тема {i + 1}: '{item.get('theme')}' | {(item.get('content') or '')[:constants.DEBUG_CONTENT_PREVIEW_CHARS]}...")
         print(f"  approved_indices: {session.approved_indices}")
-        print(f"{'=' * 60}\n")
+        print(f"{separator}\n")
 
         session.user_feedback = None
         session.current_node = "series_planned"
@@ -768,7 +767,7 @@ class Orchestrator:
         if q_start != -1:
             story_part = text[:q_start].replace("История:", "").replace("Текст истории:", "").strip()
             q_list = text[q_start:].replace("Вопросы:", "").strip().split("\n")
-            questions = [q.strip(" 1234567890. -") for q in q_list if q.strip()]
+            questions = [q.strip(constants.QUESTION_NUMBERING_STRIP_CHARS) for q in q_list if q.strip()]
         else:
             story_part = text.replace("История:", "").replace("Текст истории:", "").strip()
         return story_part, questions

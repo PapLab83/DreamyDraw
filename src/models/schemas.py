@@ -83,3 +83,8 @@ class SessionState(BaseModel):
 
     # История правок по каждой теме: {str(index): [{"source": str, "theme": str, "content": str, "note": str}, ...]}
     revision_history: dict = {}
+
+    @property
+    def plan_retry_counts(self) -> dict:
+        """Backward-compatible alias for older debug scripts."""
+        return {"validation_cycles": self.validation_cycles}
