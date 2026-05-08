@@ -42,16 +42,26 @@ class PromptBuilder:
         instr = instr.replace("{ideas_list}", ideas_list_json).replace("{truth_mode}", truth_mode)
         return instr
 
+    def _map_truth_mode_to_suffix(self, truth_mode: str) -> str:
+        """Маппинг значения режима в суффикс файла промпта."""
+        mapping = {
+            "Правда": "TRUTH",
+            "Миф": "MYTH",
+            "Сказка": "FAIRY_TALE",
+        }
+        return mapping.get(truth_mode, "TRUTH")
+
     def build_plan_validator_prompt(self, full_plan_json: str, context: str, truth_mode: str) -> str:
-        path = os.path.join(self.prompts_dir, "text", "PLAN_VALIDATOR.md")
+        suffix = self._map_truth_mode_to_suffix(truth_mode)
+        path = os.path.join(self.prompts_dir, "text", "validators", f"PLAN_VALIDATOR_{suffix}.md")
         instr = self._extract_prompt_block(path)
-        truth_path = os.path.join(self.prompts_dir, "text", "truth_modes", f"{self._map_truth_mode_file_by_val(truth_mode)}.md")
-        truth_rules = self._extract_prompt_block(truth_path)
-        instr = instr.replace("{truth_mode}", truth_mode).replace("{truth_mode_rules}", truth_rules)
+        # truth_mode_rules больше не подмешиваются — режимные критерии уже в самом валидаторе
+        instr = instr.replace("{truth_mode}", truth_mode)
         return f"{instr}\n\nПЛАН ДЛЯ ПРОВЕРКИ (JSON):\n{full_plan_json}\n\nГЛОБАЛЬНЫЙ КОНТЕКСТ:\n{context}"
 
     def build_plan_refine_prompt(self, current_plan_json: str, validator_feedback_json: str, truth_mode: str) -> str:
-        path = os.path.join(self.prompts_dir, "text", "PLAN_REFINER.md")
+        suffix = self._map_truth_mode_to_suffix(truth_mode)
+        path = os.path.join(self.prompts_dir, "text", "refiners", f"PLAN_REFINER_{suffix}.md")
         instr = self._extract_prompt_block(path)
         instr = instr.replace("{truth_mode}", truth_mode)
         return f"{instr}\n\nТЕКУЩИЙ ПЛАН (JSON):\n{current_plan_json}\n\nЗАМЕЧАНИЯ ВАЛИДАТОРА И РЕШЕНИЯ (JSON):\n{validator_feedback_json}"
