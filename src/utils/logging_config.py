@@ -62,6 +62,19 @@ def setup_logging(
         )
         root.addHandler(file_handler)
 
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("openai").setLevel(logging.WARNING)
+    # --- Подавление шума сторонних библиотек ---
+    # httpcore/httpx/openai/langfuse/urllib3 сыплют десятки DEBUG-строк на каждый HTTP-запрос.
+    # Поднимаем порог до WARNING — наши src.* логи остаются на выбранном уровне.
+    _NOISY_LOGGERS = [
+        "urllib3",
+        "httpx",
+        "httpcore",
+        "httpcore.connection",
+        "httpcore.http11",
+        "httpcore.proxy",
+        "openai",
+        "openai._base_client",
+        "langfuse",
+    ]
+    for _name in _NOISY_LOGGERS:
+        logging.getLogger(_name).setLevel(logging.WARNING)

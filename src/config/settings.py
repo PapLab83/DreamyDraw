@@ -43,8 +43,13 @@ class Settings(BaseSettings):
     # Настройки LangFuse
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_SECRET_KEY: str = ""
-    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
-    LANGFUSE_ENABLED: bool = True
+    LANGFUSE_HOST: str = constants.LANGFUSE_HOST
+    LANGFUSE_ENABLED: bool = constants.LANGFUSE_ENABLED
+    LANGFUSE_PROJECT_NAME: str = constants.LANGFUSE_PROJECT_NAME
+    LANGFUSE_ENV: str = constants.LANGFUSE_ENV
+    LANGFUSE_SAMPLE_RATE: float = constants.LANGFUSE_SAMPLE_RATE
+    LANGFUSE_CAPTURE_PROMPTS: bool = constants.LANGFUSE_CAPTURE_PROMPTS
+    LANGFUSE_PROMPT_PREVIEW_CHARS: int = constants.LANGFUSE_PROMPT_PREVIEW_CHARS
 
     # Логирование
     LOG_LEVEL: str = constants.LOG_LEVEL
