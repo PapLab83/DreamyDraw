@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     MEDIA_RETRY_INTERVAL_SECONDS: int = constants.MEDIA_RETRY_INTERVAL_SECONDS
     IMAGE_ASPECT_RATIO: str = constants.IMAGE_ASPECT_RATIO
 
+    # Настройки LangFuse
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+    LANGFUSE_ENABLED: bool = True
+
     # Логирование
     LOG_LEVEL: str = constants.LOG_LEVEL
     LOG_TO_FILE: bool = constants.LOG_TO_FILE
