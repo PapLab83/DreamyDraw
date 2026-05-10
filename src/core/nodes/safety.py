@@ -95,9 +95,9 @@ def make_config_match(
         )
         response_raw = llm.generate_text(prompt)
 
-        result = parse_llm_json(response_raw, default=None, context="config_match")
+        result = parse_llm_json(response_raw, default={}, context="config_match")
 
-        if result is None:
+        if not result:
             # Не смогли распарсить — считаем совместимым (как в старой логике)
             logger.warning("[STEP] config-match | JSON не распарсился, считаем OK")
             session.current_node = "config_passed"

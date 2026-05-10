@@ -49,9 +49,9 @@ def make_series_planner(
         )
         response_raw = llm.generate_text(prompt)
 
-        result = parse_llm_json(response_raw, default=None, context="series_planner")
+        result = parse_llm_json(response_raw, default={}, context="series_planner")
 
-        if result is None:
+        if not result:
             logger.error("[STEP] series-planner | ERROR: не удалось распарсить ответ")
             session.current_node = "failed"
             storage.save_session(session)
@@ -122,9 +122,9 @@ def make_idea_scoring(
         )
         response_raw = llm.generate_text(prompt)
 
-        result = parse_llm_json(response_raw, default=None, context="idea_scoring")
+        result = parse_llm_json(response_raw, default={}, context="idea_scoring")
 
-        if result is None:
+        if not result:
             logger.error("  [ERROR] idea-scoring: не удалось распарсить ответ")
             for it in session.ideas_pool:
                 it.child_index = settings.DEFAULT_IDEA_CHILD_INDEX

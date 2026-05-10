@@ -80,7 +80,7 @@ class SessionState(BaseModel):
     approved_indices: List[int] = []  # Список индексов одобренных тем
     # Счетчик циклов валидатор ↔ редактор (REJECTED). Сбрасывается при полном одобрении плана.
     validation_cycles: int = 0
-
+    pending_revisions: list = [] # Промежуточные данные между нодами reviewer → refiner
     # История правок по каждой теме: {str(index): [{"source": str, "theme": str, "content": str, "note": str}, ...]}
     revision_history: dict = {}
 
