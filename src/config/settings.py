@@ -3,8 +3,8 @@ from src.config import constants
 
 class Settings(BaseSettings):
     # Провайдеры (mock или openai/dalle)
-    LLM_PROVIDER: str = "mock" # gptunnel
-    IMAGE_PROVIDER: str = "mock" # gptunnel
+    LLM_PROVIDER: str = "gptunnel" # gptunnel
+    IMAGE_PROVIDER: str = "gptunnel" # gptunnel
     
     # GPTunnel / OpenAI настройки
     GPTTUNNEL_API_KEY: str = ""
