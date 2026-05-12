@@ -77,4 +77,4 @@ def setup_logging(
         "langfuse",
     ]
     for _name in _NOISY_LOGGERS:
-        logging.getLogger(_name).setLevel(logging.WARNING)
+        logging.getLogger(_name).setLevel(logging.ERROR)

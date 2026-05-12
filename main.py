@@ -168,21 +168,27 @@ def run_loop(orch: Orchestrator, session_id: str) -> SessionState:
 # ---------------------------------------------------------------------------
 
 def print_final(session: SessionState) -> None:
-    if session.current_node == "failed":
-        print("\n!!! Программа остановлена из-за ошибки.")
-        return
-
     if session.is_completed:
         print(f"\n--- Генерация завершена! ---")
         print(f"Результаты в папке: {settings.OUTPUT_DIR}/{session.session_id}")
         return
 
-    # Промежуточное состояние — сессия не завершена, но и не failed
-    # (например, пользователь отменил подтверждение текстов).
-    print(f"\n--- Генерация прервана пользователем ---")
+    if session.current_node == "failed":
+        # Эвристика: если были сгенерированы тексты, скорее всего
+        # пользователь отменил подтверждение. Иначе — реальная ошибка.
+        had_texts = any(s.text for s in session.stories)
+        if had_texts:
+            print("\n--- Генерация отменена пользователем ---")
+            print(f"Сессия сохранена: {settings.OUTPUT_DIR}/{session.session_id}")
+        else:
+            print("\n!!! Программа остановлена из-за ошибки.")
+        return
+
+    # Промежуточное состояние
+    print(f"\n--- Генерация прервана ---")
     print(f"Текущее состояние: {session.current_node}")
     print(f"Сессия сохранена: {settings.OUTPUT_DIR}/{session.session_id}")
-    print(f"Можно продолжить: python main.py --session {session.session_id}")
+    print(f"Продолжить: python main.py --session {session.session_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +206,9 @@ def main():
 
     parser = get_cli_parser()
     args = parser.parse_args()
+
+    if not args.session and not args.topic:
+        parser.error("Нужно указать topic или --session <id>")
 
     storage = JSONStorage(base_dir=settings.OUTPUT_DIR)
     llm = ProviderFactory.get_llm_provider(settings.LLM_PROVIDER)
