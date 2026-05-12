@@ -22,16 +22,12 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 from src.core.graph.builder import build_graph
-from src.core.graph.state import GraphState, to_graph_state
+from src.core.graph.state import to_graph_state
 from src.core.pipeline_result import PipelineResult
 from src.core.prompt_builder import PromptBuilder
 from src.models.schemas import GenerationRequest, SessionState, StoryItem
 from src.providers.base import BaseImageProvider, BaseLLMProvider
 from src.storage.json_storage import JSONStorage
-from src.utils.langfuse_client import (
-    log_trace_url,
-    update_current_trace,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +73,9 @@ class Orchestrator:
         return session
 
     def run_pipeline(
-        self,
-        session_id: str,
-        resume_value: Optional[Any] = None,
+            self,
+            session_id: str,
+            resume_value: Optional[Any] = None,
     ) -> PipelineResult:
         """
         Запускает (или возобновляет) граф для сессии.
@@ -94,6 +90,11 @@ class Orchestrator:
             PipelineResult с актуальным состоянием:
             - is_done=True: граф завершился (успех или failed)
             - is_waiting_user=True: граф ждёт ввода (interrupt в виде dict)
+
+        Note:
+            Langfuse trace metadata (session_id, tags, input/output) устанавливаются
+            внутри ноды `safety_gate` — это первая нода графа, у неё активный span,
+            метаданные корректно унаследуются всеми дочерними спанами.
         """
         session = self.storage.get_session(session_id)
         if not session:
@@ -105,9 +106,6 @@ class Orchestrator:
 
         config = {"configurable": {"thread_id": session_id}}
 
-        # Метаданные трейса (один раз на каждый invoke/resume)
-        self._update_trace_metadata(session)
-
         # Решаем: первый запуск или resume после interrupt
         if resume_value is not None:
             logger.debug(
@@ -117,8 +115,7 @@ class Orchestrator:
             )
             graph_input: Any = Command(resume=resume_value)
         else:
-            # Первый запуск — проверяем, есть ли уже состояние в checkpointer.
-            # Если нет (например, новый процесс) — кладём session из JSONStorage.
+            # Первый запуск — кладём session из JSONStorage в state графа.
             graph_input = to_graph_state(session)
 
         try:
@@ -135,16 +132,6 @@ class Orchestrator:
         # может быть промежуточным при interrupt.
         actual_session = self.storage.get_session(session_id) or final_state["session"]
 
-        # Обновим итог трейса
-        update_current_trace(
-            output={
-                "current_node": actual_session.current_node,
-                "is_completed": actual_session.is_completed,
-                "validation_cycles": actual_session.validation_cycles,
-                "waiting_user": interrupt_data is not None,
-            }
-        )
-
         return PipelineResult(session=actual_session, interrupt=interrupt_data)
 
     def confirm_story(self, session_id: str, index: int) -> SessionState:
@@ -160,32 +147,6 @@ class Orchestrator:
         return session
 
     # --- Внутренние утилиты ---------------------------------------------
-
-    def _update_trace_metadata(self, session: SessionState) -> None:
-        """Обогащает текущий трейс метаданными сессии."""
-        update_current_trace(
-            session_id=session.session_id,
-            user_id="cli",
-            tags=[
-                f"truth_mode:{session.request.truth_mode.value}",
-                f"work_mode:{session.request.work_mode.value}",
-                f"image_style:{session.request.image_style.value}",
-            ],
-            input={
-                "session_id": session.session_id,
-                "topic": session.request.topic,
-            },
-            metadata={
-                "truth_mode": session.request.truth_mode.value,
-                "text_style": session.request.text_style.value,
-                "image_style": session.request.image_style.value,
-                "work_mode": session.request.work_mode.value,
-                "count": session.request.count,
-                "current_node": session.current_node,
-            },
-        )
-        log_trace_url()
-
     def _extract_interrupt(self, config: dict) -> Optional[dict]:
         """
         После invoke смотрим в state graph: если есть pending interrupt —

@@ -17,6 +17,7 @@ from src.core.utils.json_parser import parse_llm_json
 from src.models.schemas import TruthMode
 from src.providers.base import BaseLLMProvider
 from src.storage.json_storage import JSONStorage
+from src.utils.langfuse_client import log_trace_url, update_current_trace
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,33 @@ def make_safety_gate(
     @observe(name="safety_gate")
     def safety_gate(state: GraphState) -> GraphState:
         session = state["session"]
+
+        # Метаданные трейса навешиваются здесь, потому что safety_gate — первая
+        # нода графа. У неё активный @observe-span, поэтому update_current_trace
+        # корректно прикрепит атрибуты к корневому trace, и они унаследуются
+        # всеми дочерними спанами (planning, validation, content).
+        update_current_trace(
+            session_id=session.session_id,
+            user_id="cli",
+            tags=[
+                f"truth_mode:{session.request.truth_mode.value}",
+                f"work_mode:{session.request.work_mode.value}",
+                f"image_style:{session.request.image_style.value}",
+            ],
+            input={
+                "session_id": session.session_id,
+                "topic": session.request.topic,
+            },
+            metadata={
+                "truth_mode": session.request.truth_mode.value,
+                "text_style": session.request.text_style.value,
+                "image_style": session.request.image_style.value,
+                "work_mode": session.request.work_mode.value,
+                "count": session.request.count,
+            },
+        )
+        log_trace_url()
+
         logger.info("[STEP] safety-gate | Проверка темы: %s", session.request.topic)
 
         prompt = prompt_builder.build_safety_prompt(session.request.topic)
@@ -111,16 +139,8 @@ def make_config_match(
             reason = result.get("reason", "")
             suggested = result.get("suggested_mode", "")
             logger.warning("[!] ВНИМАНИЕ: %s", reason)
-            # Сохраняем данные для арбитража
-            if result.get("is_compatible"):
-                logger.info("[STEP] config-match | Статус: OK")
-                session.current_node = "config_passed"
-            else:
-                reason = result.get("reason", "")
-                suggested = result.get("suggested_mode", "")
-                logger.warning("[!] ВНИМАНИЕ: %s", reason)
-                session.validator_feedback = _pack_config_feedback(reason, suggested)
-                session.current_node = "config_needs_arbitration"
+            session.validator_feedback = _pack_config_feedback(reason, suggested)
+            session.current_node = "config_needs_arbitration"
 
         storage.save_session(session)
         return {"session": session}
