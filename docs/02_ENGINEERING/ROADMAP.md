@@ -47,8 +47,8 @@
                        + основные изменения  
                        + баги (см план ниже) 
                        + тесты 
-           - Langfuse: лишний `_update_trace_metadata` в Orchestrator
-           - `parse_llm_json` не снимает markdown-обёртку
+           + Langfuse: лишний `_update_trace_metadata` в Orchestrator
+           + `parse_llm_json` не снимает markdown-обёртку
            - Сделать апдейт в промпты (сейчас текста откровенно тупые, делал руками намного лучше): 
                        - расширить примеры (режимов, стилей, валидаторов и тд но ориентируемся на то что будет y), сделать их более живыми,  
                        - добавить в стили примеры стилей поэтов: чайковского, пушкина и др  (можно стили рандомно создавать)
@@ -95,21 +95,13 @@
 Не возвращает JSON для safety/config/planner/scoring/validator → `--mode fast` без реальной LLM не работает.  
 Решение: роутер по ключевым словам промпта + набор `mocks/*.json` заглушек.
 
-**2 [trace] Langfuse: лишний `_update_trace_metadata` в Orchestrator**
-Вызывается до/после активного span (фиксили заглушкой логов — пункт закрыт частично).  
-Решение: убрать метод, перенести метаданные сессии в первую ноду (`safety_gate`) через `@observe` параметры.
-
-**3 [restore] Resume сессии через `--session` неэффективен**
+**2 [restore] Resume сессии через `--session` неэффективен**
 MemorySaver не переживает процесс → safety/config/planner/scoring пере-выполняются (тратят токены).  
 Прерывание на interrupt-ноде (Ctrl+C на `user_confirmation`) не восстанавливается корректно.  
 Решение: в `Orchestrator.run_pipeline` детектить state из JSON и стартовать граф с нужной ноды через entry-point router; либо использовать SqliteSaver вместо MemorySaver.
 
-**4 [cli] Presentation layer: `print` смешан с main**
+**3 [cli] Presentation layer: `print` смешан с main**
 Сейчас приемлемо для CLI, но мешает добавить веб/Telegram.  
 Решение: вынести в `src/cli/output.py` (класс CliOutput с методами print_*/ask_*), опционально на `rich`.  
 Делать перед добавлением второго presentation-слоя.
-
-**5 [parser] `parse_llm_json` не снимает markdown-обёртку**
-LLM иногда оборачивает JSON в ` ```json ... ``` ` → парсер падает на fallback.  
-Решение: в `src/core/utils/json_parser.py` перед `json.loads` срезать обёртку `re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())`. 2 строки + тест.
 
