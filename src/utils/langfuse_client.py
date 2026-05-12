@@ -6,7 +6,8 @@ Langfuse v4 SDK интеграция.
 """
 
 import logging
-from typing import Any, Optional
+from contextlib import contextmanager
+from typing import Any, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,47 @@ def get_client() -> Optional[Any]:
     return _CLIENT if is_enabled() else None
 
 
+@contextmanager
+def start_root_span(name: str) -> Iterator[Any]:
+    """
+    Контекст-менеджер для создания КОРНЕВОГО span на уровне приложения.
+    Все @observe-ноды внутри этого блока попадают в ОДИН общий trace.
+
+    Использование:
+        with start_root_span("orchestrator.run_pipeline") as span:
+            trace_id = getattr(span, "trace_id", None) if span else None
+            ...
+
+    Если Langfuse отключён — работает как no-op (yield None).
+    """
+    if not is_enabled():
+        yield None
+        return
+
+    # В Langfuse v4.x метод называется start_as_current_observation.
+    # Старое имя start_as_current_span оставляем как fallback для совместимости.
+    span_cm = None
+    try:
+        if hasattr(_CLIENT, "start_as_current_observation"):
+            span_cm = _CLIENT.start_as_current_observation(name=name)
+        elif hasattr(_CLIENT, "start_as_current_span"):
+            span_cm = _CLIENT.start_as_current_span(name=name)
+    except Exception as exc:
+        logger.debug("LangFuse start_root_span init failed: %s", exc)
+        span_cm = None
+
+    if span_cm is None:
+        yield None
+        return
+
+    try:
+        with span_cm as span:
+            yield span
+    except Exception as exc:
+        logger.debug("LangFuse start_root_span context error: %s", exc)
+        raise
+
+
 def update_current_trace(**kwargs: Any) -> None:
     """
     Обновить метаданные текущего трейса (session_id, user_id, tags, metadata, input, output).
@@ -79,12 +121,30 @@ def update_current_trace(**kwargs: Any) -> None:
         logger.debug("LangFuse update_current_trace failed: %s", exc)
 
 
-def log_trace_url() -> None:
-    """Залогировать URL текущего трейса для удобства дебага."""
+def log_trace_url(trace_id: Optional[str] = None) -> None:
+    """
+    Залогировать URL текущего трейса для удобства дебага.
+
+    Args:
+        trace_id: явный trace_id. Если None — пробуем взять из активного span.
+    """
     if not is_enabled():
         return
     try:
-        url = _CLIENT.get_trace_url()
+        # Если trace_id не передан — попробуем получить из активного span
+        if trace_id is None:
+            span = _CLIENT.get_current_span() if hasattr(_CLIENT, "get_current_span") else None
+            if span is not None:
+                # У span'а есть атрибут trace_id (в v4 SDK)
+                trace_id = getattr(span, "trace_id", None)
+
+        if trace_id and hasattr(_CLIENT, "get_trace_url"):
+            url = _CLIENT.get_trace_url(trace_id=trace_id)
+        elif hasattr(_CLIENT, "get_trace_url"):
+            url = _CLIENT.get_trace_url()
+        else:
+            return
+
         if url:
             logger.info("LangFuse trace URL: %s", url)
     except Exception as exc:

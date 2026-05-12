@@ -28,6 +28,11 @@ from src.core.prompt_builder import PromptBuilder
 from src.models.schemas import GenerationRequest, SessionState, StoryItem
 from src.providers.base import BaseImageProvider, BaseLLMProvider
 from src.storage.json_storage import JSONStorage
+from src.utils.langfuse_client import (
+    log_trace_url,
+    start_root_span,
+    update_current_trace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +97,9 @@ class Orchestrator:
             - is_waiting_user=True: граф ждёт ввода (interrupt в виде dict)
 
         Note:
-            Langfuse trace metadata (session_id, tags, input/output) устанавливаются
-            внутри ноды `safety_gate` — это первая нода графа, у неё активный span,
-            метаданные корректно унаследуются всеми дочерними спанами.
+            Корневой span создаётся здесь через start_root_span(). Все @observe-ноды
+            графа автоматически попадают в один trace благодаря OpenTelemetry-контексту.
+            Метаданные сессии (tags, input, etc.) навешиваются на этот корневой span.
         """
         session = self.storage.get_session(session_id)
         if not session:
@@ -118,19 +123,59 @@ class Orchestrator:
             # Первый запуск — кладём session из JSONStorage в state графа.
             graph_input = to_graph_state(session)
 
-        try:
-            final_state = self.graph.invoke(graph_input, config=config)
-        except Exception:
-            logger.exception("Orchestrator: graph.invoke failed")
-            raise
+        # Корневой span — объединяет все ноды графа в один Langfuse trace.
+        # Без него каждая @observe-нода создаёт свой отдельный trace.
+        with start_root_span(name="orchestrator.run_pipeline") as root_span:
+            # Атрибуты trace навешиваем здесь — span активен, контекст есть
+            update_current_trace(
+                session_id=session.session_id,
+                user_id="cli",
+                tags=[
+                    f"truth_mode:{session.request.truth_mode.value}",
+                    f"work_mode:{session.request.work_mode.value}",
+                    f"image_style:{session.request.image_style.value}",
+                ],
+                input={
+                    "session_id": session.session_id,
+                    "topic": session.request.topic,
+                    "resume": resume_value is not None,
+                },
+                metadata={
+                    "truth_mode": session.request.truth_mode.value,
+                    "text_style": session.request.text_style.value,
+                    "image_style": session.request.image_style.value,
+                    "work_mode": session.request.work_mode.value,
+                    "count": session.request.count,
+                },
+            )
 
-        # Проверяем: граф остановился на interrupt или завершился?
-        interrupt_data = self._extract_interrupt(config)
+            # Логируем URL именно этого trace (берём trace_id из root_span)
+            trace_id = getattr(root_span, "trace_id", None) if root_span else None
+            log_trace_url(trace_id=trace_id)
 
-        # Актуальная сессия — берём ИЗ JSONStorage, т.к. ноды сами туда сохраняют
-        # после каждого шага. Это надёжнее, чем доверять final_state, который
-        # может быть промежуточным при interrupt.
-        actual_session = self.storage.get_session(session_id) or final_state["session"]
+            try:
+                final_state = self.graph.invoke(graph_input, config=config)
+            except Exception:
+                logger.exception("Orchestrator: graph.invoke failed")
+                raise
+
+            # Проверяем: граф остановился на interrupt или завершился?
+            interrupt_data = self._extract_interrupt(config)
+
+            # Актуальная сессия — берём ИЗ JSONStorage, т.к. ноды сами туда сохраняют
+            # после каждого шага. Это надёжнее, чем доверять final_state, который
+            # может быть промежуточным при interrupt.
+            actual_session = self.storage.get_session(session_id) or final_state["session"]
+
+            # Финальный output на trace — видно сразу в Langfuse UI
+            update_current_trace(
+                output={
+                    "current_node": actual_session.current_node,
+                    "is_completed": actual_session.is_completed,
+                    "validation_cycles": actual_session.validation_cycles,
+                    "waiting_user": interrupt_data is not None,
+                }
+            )
 
         return PipelineResult(session=actual_session, interrupt=interrupt_data)
 
