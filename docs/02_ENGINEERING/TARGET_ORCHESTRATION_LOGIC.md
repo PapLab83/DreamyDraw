@@ -519,6 +519,27 @@ content_format = story
     "avoid": [],
     "recent_topics": []
   },
+  "prompt_context": {
+    "resolved_layers": [
+      {
+        "type": "content_format",
+        "id": "content_formats/story/BASE",
+        "source": "docs/03_PROMPTS/content_formats/story/BASE.md"
+      },
+      {
+        "type": "truth_mode",
+        "id": "truth_modes/TRUTH/BASE",
+        "source": "docs/03_PROMPTS/truth_modes/TRUTH/BASE.md"
+      },
+      {
+        "type": "character",
+        "id": "truth_modes/TRUTH/characters/animals/HEDGEHOG",
+        "source": "docs/03_PROMPTS/truth_modes/TRUTH/characters/animals/HEDGEHOG.md"
+      }
+    ],
+    "fallback_layers": [],
+    "unresolved_details": []
+  },
   "confidence": {
     "content_format": 90,
     "truth_mode": 85,
@@ -562,6 +583,49 @@ content_format = story
 Явный текущий запрос пользователя имеет приоритет над историей. Например, если в профиле или истории указан возраст 3 года, но пользователь пишет «для ребёнка 5 лет», система должна использовать 5 лет или явно показать, что текущий запрос переопределяет дефолт.
 
 Если в будущем `user_context` будет использовать данные о ребёнке или семейных настройках, он должен подключаться только при наличии разрешённых данных и понятных правил приватности. На уровне текущей логики этот блок является необязательным расширением нормализованного объекта.
+
+---
+
+### 4.4.2 Resolved layers, fallback layers и unresolved details
+
+После анализа запроса и candidate layer resolution система должна различать три типа контекста:
+
+1. **`resolved_layers`** — параметры или сущности, для которых найден конкретный prompt layer / `.md`-файл.
+2. **`fallback_layers`** — параметры или сущности, для которых точного слоя нет, но найден ближайший поддерживаемый слой или выбран базовый слой.
+3. **`unresolved_details`** — важные детали запроса, для которых нет слоя в prompt-базе, но которые нужно сохранить и передать дальше как freeform context.
+
+Пример:
+
+```text
+Пользователь: Расскажи правдивую историю про попугая какаду.
+```
+
+Если в базе есть слой про попугая, но нет отдельного слоя про какаду, нормализованный объект может содержать:
+
+```json
+{
+  "resolved_layers": [
+    {
+      "type": "character",
+      "id": "truth_modes/TRUTH/characters/animals/PARROT",
+      "source": "docs/03_PROMPTS/truth_modes/TRUTH/characters/animals/PARROT.md"
+    }
+  ],
+  "fallback_layers": [],
+  "unresolved_details": [
+    {
+      "text": "какаду",
+      "type": "animal_subtype",
+      "reason": "Нет отдельного prompt layer для какаду",
+      "usage": "Передать как freeform factual detail в prompt execution context"
+    }
+  ]
+}
+```
+
+Принцип: если prompt layer найден, система использует его детерминированно. Если prompt layer не найден, система не теряет пользовательскую деталь, но и не обещает, что она покрыта базой знаний. Такая деталь передаётся агентам как `unresolved_detail` / `freeform_context`.
+
+Для режима `TRUTH` это особенно важно: фактические детали, которые пришли не из knowledge layer, должны использоваться осторожно и дополнительно проверяться валидатором на отсутствие сомнительных или выдуманных фактов.
 
 ---
 
