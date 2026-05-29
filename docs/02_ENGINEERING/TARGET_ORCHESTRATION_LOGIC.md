@@ -487,7 +487,27 @@ content_format = story
   "audience_language": "ru",
   "result_language": "ru",
   "main_subject": "ёжик",
-  "subjects": ["ёжик"],
+  "subjects": [
+    {
+      "id": "hedgehog",
+      "name": "ёжик",
+      "type": "animal",
+      "role": "main",
+      "is_character": false,
+      "base_species": "hedgehog",
+      "character_profile": null,
+      "continuity": "must_appear_in_all"
+    }
+  ],
+  "subject_continuity_policy": {
+    "mode": "single_subject_all_items",
+    "required_subjects": ["hedgehog"],
+    "coverage": "item_level",
+    "allowed_distribution": "all_items",
+    "can_mix_subjects_in_one_item": true,
+    "can_introduce_new_subjects": true,
+    "can_replace_required_subjects": false
+  },
   "setting": {
     "place": "лес",
     "season": "зима",
@@ -620,6 +640,146 @@ content_format = story
 Принцип: если prompt layer найден, система использует его детерминированно. Если prompt layer не найден, система не теряет пользовательскую деталь, но и не обещает, что она покрыта базой знаний. Такая деталь передаётся агентам как `unresolved_detail` / `freeform_context`.
 
 Для режима `TRUTH` это особенно важно: фактические детали, которые пришли не из knowledge layer, должны использоваться осторожно и дополнительно проверяться валидатором на отсутствие сомнительных или выдуманных фактов.
+
+---
+
+### 4.4.3 Subject and character continuity contract
+
+Первый этап должен не только извлечь тему запроса, но и зафиксировать, какие сущности нужно сохранить в дальнейшем результате.
+
+Для этого нормализованный объект должен различать:
+
+* `main_subject` — короткое человеко-понятное поле для главной темы, существа, объекта или персонажа;
+* `subjects` — структурированный список значимых существ, людей, объектов, явлений или мест из запроса;
+* `is_character` — признак того, что subject является устойчивым героем серии, а не просто темой или объектом рассказа;
+* `character_profile` — устойчивое описание персонажа, если subject действительно является персонажем;
+* `subject_continuity_policy` — правила, как subjects должны сохраняться и распределяться между итоговыми историями.
+
+Минимальная структура одного subject:
+
+```json
+{
+  "id": "hedgehog",
+  "name": "ёжик",
+  "type": "animal",
+  "role": "main",
+  "is_character": false,
+  "base_species": "hedgehog",
+  "character_profile": null,
+  "continuity": "must_appear_in_all"
+}
+```
+
+Если subject является персонажем, у него может появиться `character_profile`:
+
+```json
+{
+  "id": "small_squirrel_child",
+  "name": null,
+  "type": "animal_character",
+  "role": "main",
+  "is_character": true,
+  "base_species": "squirrel",
+  "character_profile": {
+    "traits": [],
+    "stable_details": ["маленький бельчонок"],
+    "speech_style": null,
+    "relationship_to_child": null
+  },
+  "continuity": "must_appear_in_all"
+}
+```
+
+`character_profile` не должен заполняться искусственно без необходимости. Например, в режиме `TRUTH` запрос «про белок зимой» обычно не требует выдуманного имени или характера. А запрос «про маленького бельчонка» уже звучит как история про конкретного героя, поэтому система может интерпретировать его как `is_character = true`, но всё ещё не обязана придумывать имя, если пользователь его не дал.
+
+`subject_continuity_policy` определяет, как subjects должны проходить через серию:
+
+```json
+{
+  "mode": "multiple_subjects_distributed",
+  "required_subjects": ["fox", "hare", "squirrel"],
+  "coverage": "series_level",
+  "allowed_distribution": "across_items",
+  "can_mix_subjects_in_one_item": true,
+  "can_introduce_new_subjects": true,
+  "can_replace_required_subjects": false
+}
+```
+
+Базовые режимы continuity:
+
+| Mode | Значение |
+| --- | --- |
+| `single_subject_all_items` | Один обязательный subject должен присутствовать во всех историях. |
+| `multiple_subjects_distributed` | Несколько subjects должны быть покрыты на уровне серии, но не обязаны все появляться в каждой истории. |
+| `multiple_subjects_together` | Несколько subjects должны появляться вместе в каждой истории или почти в каждой истории. |
+| `main_plus_secondary` | Один subject главный, остальные могут появляться как второстепенные. |
+| `subject_pool_optional` | Есть пул допустимых subjects, но не каждый обязан появиться. |
+| `topic_only_no_continuity` | Запрос задаёт тему, но не требует устойчивого героя или объекта через серию. |
+
+Примеры дефолтной интерпретации:
+
+```text
+Пользователь: Сделай 3 истории про лису, зайца и белку зимой.
+```
+
+По умолчанию это не значит, что все три животные должны быть в каждой истории. Система может выбрать `multiple_subjects_distributed`: серия в целом должна покрыть лису, зайца и белку, но отдельная история может быть про одного или двух из них.
+
+```json
+{
+  "main_subject": "лиса, заяц и белка зимой",
+  "subjects": [
+    {"id": "fox", "name": "лиса", "type": "animal", "role": "main", "is_character": false},
+    {"id": "hare", "name": "заяц", "type": "animal", "role": "main", "is_character": false},
+    {"id": "squirrel", "name": "белка", "type": "animal", "role": "main", "is_character": false}
+  ],
+  "subject_continuity_policy": {
+    "mode": "multiple_subjects_distributed",
+    "required_subjects": ["fox", "hare", "squirrel"],
+    "coverage": "series_level",
+    "allowed_distribution": "across_items",
+    "can_mix_subjects_in_one_item": true,
+    "can_replace_required_subjects": false
+  }
+}
+```
+
+Если пользователь явно пишет «в каждой истории должны быть лиса, заяц и белка» или «про приключения лисы, зайца и белки вместе», система должна выбрать более строгую политику `multiple_subjects_together`.
+
+```text
+Пользователь: Расскажи историю про маленького бельчонка.
+```
+
+Такой запрос может быть интерпретирован как запрос про персонажа:
+
+```json
+{
+  "main_subject": "маленький бельчонок",
+  "subjects": [
+    {
+      "id": "small_squirrel_child",
+      "name": null,
+      "type": "animal_character",
+      "role": "main",
+      "is_character": true,
+      "base_species": "squirrel",
+      "character_profile": {
+        "traits": [],
+        "stable_details": ["маленький бельчонок"]
+      },
+      "continuity": "must_appear_in_all"
+    }
+  ],
+  "subject_continuity_policy": {
+    "mode": "single_subject_all_items",
+    "required_subjects": ["small_squirrel_child"],
+    "coverage": "item_level",
+    "can_replace_required_subjects": false
+  }
+}
+```
+
+Дефолты интерпретации являются продуктовой политикой, а не отдельной бизнес-логикой. Их можно менять в промпте первого этапа, policy config или реализации агента без изменения самого контракта. Контракт фиксирует, какие данные должны быть переданы дальше, а не навсегда закрепляет единственный способ интерпретировать каждую формулировку.
 
 ---
 
@@ -1564,6 +1724,9 @@ Hard gate — это проверка, при провале которой ка
 * грубое несоответствие возрасту;
 * нарушение обязательных `hard_details`;
 * невозможность сохранить `main_subject`;
+* потеря или неожиданная замена `required_subjects`;
+* нарушение `subject_continuity_policy`;
+* изменение устойчивого `character_profile`;
 * невозможность сохранить utility goal.
 
 Если кандидат провалил hard gate, он попадает в rejected pool и не участвует в обычном ранжировании.
@@ -1646,8 +1809,12 @@ max_refine_attempts_per_candidate = 2
 
 * менять тему кандидата;
 * менять `main_subject`;
+* менять или терять `required_subjects`;
+* менять `subject_continuity_policy`;
+* менять устойчивый `character_profile`;
 * менять utility goal;
 * удалять обязательные `hard_details`;
+* превращать subject в другого персонажа или объект;
 * превращать кандидата в другой сюжет.
 
 Если без смены темы исправить кандидата нельзя, кандидат пропускается.
