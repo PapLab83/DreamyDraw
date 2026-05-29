@@ -158,7 +158,17 @@ Prompt context profile:
 
 Composition note: refiner получает repair-oriented context. Он должен видеть immutable fields, но не обязан получать полный creative context, если проблема локальная.
 
-### 4.6 Approved Text Selector
+### 4.6 Ranker
+
+Prompt context profile:
+
+* scores;
+* hard gate results;
+* ranking policy.
+
+Composition note: ranker обычно является детерминированным шагом и может не требовать LLM prompt context.
+
+### 4.7 Approved Text Selector
 
 Prompt context profile:
 
@@ -167,7 +177,7 @@ Prompt context profile:
 * requested `output_count`;
 * fallback policy при нехватке approved texts.
 
-Composition note: selector получает selection-oriented context. Обычно ему не нужны полные prompt bodies style/entity layers, если ranking и validation summaries уже содержат нужные сигналы.
+Composition note: selector получает selection-oriented context после validation/refinement loop. Обычно ему не нужны полные prompt bodies style/entity layers, если ranking и validation summaries уже содержат нужные сигналы.
 
 ---
 

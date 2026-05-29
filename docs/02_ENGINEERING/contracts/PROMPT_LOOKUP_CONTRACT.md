@@ -72,12 +72,14 @@ Metadata lookup может определить:
 {
   "resolved_layers": [
     {
-      "layer_id": "CONTENT_FORMAT_STORY",
+      "type": "content_format",
+      "id": "CONTENT_FORMAT_STORY",
       "source": "content_formats/story/BASE.md",
       "reason": "content_format=story"
     },
     {
-      "layer_id": "TRUTH_BASE",
+      "type": "truth_mode",
+      "id": "TRUTH_BASE",
       "source": "truth_modes/TRUTH/BASE.md",
       "reason": "truth_mode=TRUTH"
     }

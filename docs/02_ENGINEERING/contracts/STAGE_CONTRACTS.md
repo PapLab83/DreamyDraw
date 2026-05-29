@@ -19,6 +19,7 @@
 | `CandidateTextGenerator` | Генерирует пул текстов. |
 | `TopicDeduplicator` | Проверяет повторы тем. |
 | `Scorer` | Оценивает кандидатов. |
+| `Ranker` | Сортирует по score. |
 | `Validator` | Проверяет один текст. |
 | `Refiner` | Исправляет один текст. |
 | `ApprovedTextSelector` | Набирает итоговые тексты. |
@@ -38,10 +39,13 @@ TopicDeduplicator
 Scorer
         │
         ▼
-ApprovedTextSelector reads ranking
+Ranker
         │
         ▼
 Validator / Refiner loop
+        │
+        ▼
+ApprovedTextSelector
         │
         ▼
 approved_texts
@@ -70,8 +74,14 @@ approved_texts
       "theme": "ёжик ищет сухие листья для зимнего укрытия",
       "text": "Короткий текст...",
       "questions": ["Что ёжик искал?", "Почему сухие листья полезны?"],
-      "used_subjects": ["ёжик"],
+      "used_subjects": ["hedgehog"],
       "utility_points": [],
+      "expected_visual_idea": "ёжик рядом с сухими листьями на снегу",
+      "used_context": {
+        "resolved_layers": [],
+        "fallback_layers": [],
+        "unresolved_details": []
+      },
       "status": "draft"
     }
   ]
@@ -84,8 +94,10 @@ approved_texts
 | `theme` | Уникальная тема текста. |
 | `text` | Сгенерированный текст. |
 | `questions` | Вопросы к ребёнку. |
-| `used_subjects` | Какие subjects использованы. |
+| `used_subjects` | Какие subject ids использованы. |
 | `utility_points` | Какие обучающие идеи покрыты. |
+| `expected_visual_idea` | Необязательная идея для визуализации. |
+| `used_context` | Какие слои и детали реально учтены. |
 | `status` | Состояние кандидата. |
 
 ### 2.3 Rules
@@ -192,9 +204,49 @@ approved_texts
 
 ---
 
-## 5. Validator
+## 5. Ranker
+
+`Ranker` может быть детерминированным шагом без отдельного LLM-вызова.
 
 ### 5.1 Input
+
+| Поле | Краткое объяснение |
+| --- | --- |
+| `candidate_texts` | Пул кандидатов после scoring. |
+| `scores` | Hard gates и score components. |
+
+### 5.2 Output
+
+```json
+{
+  "ranked_candidates": [
+    {
+      "candidate_id": "c01",
+      "rank": 1,
+      "total_score": 0.80,
+      "hard_gates_passed": true
+    }
+  ]
+}
+```
+
+| Поле | Краткое объяснение |
+| --- | --- |
+| `ranked_candidates` | Кандидаты в порядке проверки. |
+| `rank` | Место кандидата в очереди. |
+| `hard_gates_passed` | Можно ли валидировать кандидата. |
+
+### 5.3 Rules
+
+* кандидаты с проваленными критичными hard gates не попадают в обычную очередь validation;
+* сортировка идёт по `total_score` сверху вниз;
+* при равенстве score можно учитывать novelty и visual potential.
+
+---
+
+## 6. Validator
+
+### 6.1 Input
 
 | Поле | Краткое объяснение |
 | --- | --- |
@@ -203,7 +255,7 @@ approved_texts
 | `prompt_context` | Слои и ограничения. |
 | `validation_criteria` | Что именно проверять. |
 
-### 5.2 Output
+### 6.2 Output
 
 ```json
 {
@@ -228,7 +280,7 @@ approved_texts
 | `issues` | Найденные проблемы. |
 | `required_fixes` | Что должен исправить refiner. |
 
-### 5.3 Rules
+### 6.3 Rules
 
 * валидировать кандидатов последовательно по ranking;
 * не валидировать весь пул до конца, если уже набрано нужное количество approved texts;
@@ -237,9 +289,9 @@ approved_texts
 
 ---
 
-## 6. Refiner
+## 7. Refiner
 
-### 6.1 Input
+### 7.1 Input
 
 | Поле | Краткое объяснение |
 | --- | --- |
@@ -249,7 +301,7 @@ approved_texts
 | `prompt_context` | Слои и ограничения. |
 | `refiner_stage_context` | Prompt для исправления. |
 
-### 6.2 Output
+### 7.2 Output
 
 ```json
 {
@@ -270,7 +322,7 @@ approved_texts
 | `changes_summary` | Что было изменено. |
 | `status` | Состояние после правки. |
 
-### 6.3 Rules
+### 7.3 Rules
 
 * не менять тему кандидата;
 * не менять `main_subject`;
@@ -282,9 +334,11 @@ approved_texts
 
 ---
 
-## 7. ApprovedTextSelector
+## 8. ApprovedTextSelector
 
-### 7.1 Input
+`ApprovedTextSelector` работает после ranking и validation/refinement loop. До validation есть только ranked candidates, но ещё нет approved texts.
+
+### 8.1 Input
 
 | Поле | Краткое объяснение |
 | --- | --- |
@@ -292,7 +346,7 @@ approved_texts
 | `validation_results` | Результаты validation loop. |
 | `output_count` | Сколько текстов нужно. |
 
-### 7.2 Output
+### 8.2 Output
 
 ```json
 {
@@ -321,7 +375,7 @@ approved_texts
 | `approved` | Сколько удалось набрать. |
 | `status` | `enough` или причина нехватки. |
 
-### 7.3 MVP fallback
+### 8.3 MVP fallback
 
 Если approved texts не хватает:
 
@@ -332,7 +386,7 @@ approved_texts
 
 ---
 
-## 8. Общие immutable fields
+## 9. Общие immutable fields
 
 Следующие поля нельзя менять после первого этапа без отдельной логики уточнения:
 

@@ -29,6 +29,7 @@
       "type": "animal",
       "role": "main",
       "is_character": false,
+      "base_species": "hedgehog",
       "resolved_layer_id": "TRUTH_ANIMAL_HEDGEHOG",
       "unresolved_detail": null
     }
@@ -41,7 +42,15 @@
   "text_style_base": "calm",
   "substyle": "naturalistic",
   "character_profile": null,
-  "subject_continuity_policy": "same_main_subject_all_texts",
+  "subject_continuity_policy": {
+    "mode": "single_subject_all_items",
+    "required_subjects": ["hedgehog"],
+    "coverage": "item_level",
+    "allowed_distribution": "all_items",
+    "can_mix_subjects_in_one_item": true,
+    "can_introduce_new_subjects": true,
+    "can_replace_required_subjects": false
+  },
   "hard_details": [
     "главный объект — ёжик",
     "действие происходит зимой в лесу",
@@ -100,6 +109,7 @@
   "type": "animal",
   "role": "main",
   "is_character": false,
+  "base_species": "fox",
   "resolved_layer_id": "TRUTH_ANIMAL_FOX",
   "unresolved_detail": null
 }
@@ -112,6 +122,7 @@
 | `type` | Тип сущности: `animal`, `person`, `profession`, `object`, `place`, `nature`, `custom`. |
 | `role` | Роль в результате: `main`, `secondary`, `context`. |
 | `is_character` | Является ли сущность устойчивым персонажем. |
+| `base_species` | Базовый вид или родовая сущность, если применимо. |
 | `resolved_layer_id` | Найденный prompt layer, если он есть. |
 | `unresolved_detail` | Деталь, для которой нет точного слоя. |
 
@@ -133,6 +144,7 @@
       "type": "animal_character",
       "role": "main",
       "is_character": true,
+      "base_species": "squirrel",
       "resolved_layer_id": "TRUTH_ANIMAL_SQUIRREL",
       "unresolved_detail": "маленький бельчонок по имени Тим"
     }
@@ -141,9 +153,19 @@
     "name": "Тим",
     "base_subject_id": "squirrel_child_tim",
     "stable_traits": ["маленький", "любопытный"],
+    "stable_details": ["бельчонок"],
+    "speech_style": null,
     "must_remain_same_character": true
   },
-  "subject_continuity_policy": "same_character_all_texts"
+  "subject_continuity_policy": {
+    "mode": "single_character_all_items",
+    "required_subjects": ["squirrel_child_tim"],
+    "coverage": "item_level",
+    "allowed_distribution": "all_items",
+    "can_mix_subjects_in_one_item": true,
+    "can_introduce_new_subjects": true,
+    "can_replace_required_subjects": false
+  }
 }
 ```
 
@@ -181,15 +203,33 @@ is_character = true
 
 `subject_continuity_policy` фиксирует, как subjects должны сохраняться между несколькими итоговыми текстами.
 
-Возможные значения:
+Это объект, а не строка. Так валидатор и редактор могут явно понимать, какие subjects обязательны, где они должны появиться и можно ли добавлять новых.
+
+Минимальная структура:
+
+```json
+{
+  "mode": "multiple_subjects_distributed",
+  "required_subjects": ["fox", "hare", "squirrel"],
+  "coverage": "series_level",
+  "allowed_distribution": "across_items",
+  "can_mix_subjects_in_one_item": true,
+  "can_introduce_new_subjects": true,
+  "can_replace_required_subjects": false
+}
+```
+
+Возможные `mode`:
 
 | Значение | Смысл |
 | --- | --- |
-| `same_main_subject_all_texts` | Один главный subject должен быть во всех текстах. |
-| `same_character_all_texts` | Один персонаж с профилем должен сохраняться во всех текстах. |
-| `distribute_subjects_across_texts` | Несколько subjects можно распределять по разным текстам. |
-| `combine_subjects_in_each_text` | Все основные subjects должны присутствовать в каждом тексте. |
-| `free_subject_variation` | Subjects могут варьироваться, если это не ломает запрос. |
+| `single_subject_all_items` | Один главный subject должен быть во всех текстах. |
+| `single_character_all_items` | Один персонаж с профилем должен сохраняться во всех текстах. |
+| `multiple_subjects_distributed` | Несколько subjects покрываются на уровне серии, но не обязаны быть в каждом тексте. |
+| `multiple_subjects_together` | Все основные subjects должны присутствовать в каждом тексте или почти в каждом. |
+| `main_plus_secondary` | Один subject главный, остальные могут быть второстепенными. |
+| `subject_pool_optional` | Есть пул допустимых subjects, но не каждый обязан появиться. |
+| `topic_only_no_continuity` | Запрос задаёт тему, но не требует устойчивого героя или объекта через серию. |
 
 Пример:
 
@@ -201,7 +241,15 @@ is_character = true
 
 ```json
 {
-  "subject_continuity_policy": "distribute_subjects_across_texts"
+  "subject_continuity_policy": {
+    "mode": "multiple_subjects_distributed",
+    "required_subjects": ["fox", "hare", "squirrel"],
+    "coverage": "series_level",
+    "allowed_distribution": "across_items",
+    "can_mix_subjects_in_one_item": true,
+    "can_introduce_new_subjects": true,
+    "can_replace_required_subjects": false
+  }
 }
 ```
 
@@ -237,7 +285,13 @@ is_character = true
 
 ```json
 {
-  "resolved_layers": ["TRUTH_ANIMAL_PARROT"],
+  "resolved_layers": [
+    {
+      "type": "entity",
+      "id": "TRUTH_ANIMAL_PARROT",
+      "source": "truth_modes/TRUTH/characters/animals/PARROT.md"
+    }
+  ],
   "fallback_layers": [
     {
       "requested": "какаду",
