@@ -8,6 +8,8 @@
 
 Это не финальная Pydantic-схема, но логический контракт для будущей реализации.
 
+`normalized_request` описывает саму задачу генерации. Процессные данные первого этапа — confidence, необходимость уточнения, причина уточнения и preview — должны жить отдельно, например в `interpretation_state` и `preview_state`.
+
 ---
 
 ## 1. Минимальный объект
@@ -21,6 +23,13 @@
   "output_count": 5,
   "audience_language": "ru",
   "result_language": "ru",
+  "current_config": {
+    "truth_mode": "TRUTH",
+    "utility_mode": "NARRATIVE",
+    "target_age": "3",
+    "text_style_base": "calm",
+    "image_style": "cartoon"
+  },
   "main_subject": "ёжик",
   "subjects": [
     {
@@ -60,7 +69,19 @@
     "мягкий тон",
     "простые фразы"
   ],
-  "user_context": null,
+  "user_context": {
+    "available": false,
+    "source": null,
+    "defaults": {},
+    "preferences": {},
+    "avoid": [],
+    "recent_topics": []
+  },
+  "visual_preferences": {
+    "image_style": "cartoon",
+    "target_device": null,
+    "visual_output_type": "single_image_card"
+  },
   "prompt_context": {
     "resolved_layers": [],
     "fallback_layers": [],
@@ -82,6 +103,7 @@
 | `output_count` | Сколько итоговых approved texts нужно пользователю. |
 | `audience_language` | Язык общения с пользователем. На старте `ru`. |
 | `result_language` | Язык результата. На старте `ru`. |
+| `current_config` | Настройки, с которыми пользователь пришёл в запрос. |
 | `main_subject` | Главное человеко-понятное обозначение темы, объекта или персонажа. |
 | `subjects` | Структурированный список сущностей запроса. |
 | `setting` | Место, сезон, время и другие обстоятельства. |
@@ -91,12 +113,53 @@
 | `subject_continuity_policy` | Правило сохранения сущностей между текстами. |
 | `hard_details` | Жёсткие требования пользователя. |
 | `soft_preferences` | Мягкие пожелания пользователя. |
-| `user_context` | Будущий минимальный контекст пользователя, если появится история. |
+| `user_context` | Минимальный контекст пользователя. Если истории нет, объект существует с `available=false`. |
+| `visual_preferences` | Настройки для будущего визуального этапа. Text pipeline их сохраняет, но не обязан использовать. |
 | `prompt_context` | Результат prompt lookup и candidate layer resolution. |
+
+`current_config` и `user_context` используются как источники дефолтов и подсказок для интерпретации. Явный текущий запрос пользователя имеет приоритет над ними; если система хочет изменить уже выбранную настройку из-за смысла запроса, это должно проходить через clarification/arbitration, а не через молчаливую замену.
 
 ---
 
-## 3. Subject Contract
+## 3. Interpretation State and Preview State
+
+Эти блоки не являются частью `normalized_request`, потому что описывают процесс интерпретации, а не саму задачу генерации.
+
+Пример:
+
+```json
+{
+  "interpretation_state": {
+    "confidence": {
+      "content_format": 90,
+      "truth_mode": 85,
+      "utility_mode": 80,
+      "target_age": 95,
+      "main_subject": 95
+    },
+    "requires_clarification": false,
+    "clarification_reason": null
+  },
+  "preview_state": {
+    "preview_text": "Я подготовлю 5 спокойных правдивых историй про ёжика зимой в лесу для ребёнка 3 лет.",
+    "shown_to_user": true
+  }
+}
+```
+
+Правило:
+
+```text
+normalized_request
+  → input второго этапа
+
+interpretation_state / preview_state
+  → состояние первого этапа и UI/session metadata
+```
+
+---
+
+## 4. Subject Contract
 
 `subjects` фиксирует, о ком или о чём должен быть результат. Это не обязательно персонажи в художественном смысле.
 
@@ -128,7 +191,7 @@
 
 ---
 
-## 4. Character Contract
+## 5. Character Contract
 
 Если `subject.is_character = true`, система должна заполнить или подготовить `character_profile`.
 
@@ -199,7 +262,7 @@ is_character = true
 
 ---
 
-## 5. Subject Continuity Policy
+## 6. Subject Continuity Policy
 
 `subject_continuity_policy` фиксирует, как subjects должны сохраняться между несколькими итоговыми текстами.
 
@@ -257,7 +320,7 @@ is_character = true
 
 ---
 
-## 6. Prompt Context
+## 7. Prompt Context
 
 `prompt_context` хранит результат prompt lookup.
 

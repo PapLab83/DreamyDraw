@@ -43,7 +43,7 @@ stage prompt context
 
 1. `content_format` base;
 2. `truth_mode` base;
-3. `utility_mode` base and topic layer;
+3. `utility_mode` base and `utility_topic_layer`;
 4. `target_age` layer;
 5. `result_language` layer;
 6. `style` / `substyle` layers;

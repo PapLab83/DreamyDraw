@@ -6,6 +6,8 @@
 
 Документ фиксирует, что не входит в первый MVP-контур prompt contracts и не должно блокировать подготовку seed prompts, PromptRegistry, PromptComposer и второго этапа генерации текстов.
 
+Продуктовый MVP DreamyDraw по-прежнему предполагает визуальный результат. В этом документе граница уже: contracts и text pipeline доводятся до `approved_texts`, а baseline image generation рассматривается как downstream stage с отдельной детализацией.
+
 ---
 
 ## 1. Не входит в MVP контрактов

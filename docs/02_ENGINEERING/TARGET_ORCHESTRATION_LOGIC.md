@@ -19,7 +19,7 @@
 * как после фиксации параметров система подбирает prompt layers / `.md`-файлы;
 * как дальше организуется основной процесс подготовки результата: подготовка prompt execution context, генерация пула текстовых кандидатов, scoring, последовательная валидация, редактура и набор approved texts.
 
-На текущем этапе документа подробно описаны первые два крупных блока: сбор и нормализация параметров генерации, а также основной pipeline подготовки текстового результата. Генерация иллюстраций и будущие форматы результата будут детализироваться в следующих итерациях документа.
+На текущем этапе документа подробно описаны первые два крупных блока: сбор и нормализация параметров генерации, а также основной pipeline подготовки текстового результата до набора `approved_texts`. Визуализация остаётся частью продуктового MVP, но в этой версии документа рассматривается как следующий downstream stage и детализируется отдельно.
 
 Техническая реализация — конкретные ноды LangGraph, routing-функции, структура `SessionState`, interrupt/resume и Langfuse-наблюдаемость — должна описываться отдельно в технической спецификации. Этот документ является логическим основанием для такой реализации.
 
@@ -301,6 +301,8 @@ Preview должен показывать уже исполнимую интер
 
 Пользователь не обязан заполнять форму или заранее знать все режимы системы. Он может написать запрос свободным текстом, неполно, нестрого или даже оставить поле пустым. Задача оркестратора — помочь пользователю прийти к исполнимому запросу без лишнего трения.
 
+Если у пользователя уже есть текущие настройки интерфейса (`current_config`) или разрешённый `user_context`, первый этап использует их как источник дефолтов. При этом явный текущий запрос пользователя имеет приоритет: система не должна молча переопределять явно сказанное пользователем историей или прежними настройками.
+
 Пример полного запроса:
 
 ```text
@@ -388,6 +390,8 @@ content_format = story
 * `photo_character`.
 
 Добавление новых форматов не должно требовать пересборки всей логики сбора параметров. Формат результата должен становиться одним из базовых параметров, который влияет на дальнейший подбор prompt layers и основной pipeline.
+
+Параметры визуального этапа, например `image_style`, `target_device` или `visual_output_type`, могут сохраняться в `visual_preferences`. Text pipeline не обязан использовать их напрямую, но должен сохранить эти данные для downstream-этапа визуализации.
 
 ---
 
@@ -478,7 +482,7 @@ content_format = story
 * агентами уточнения и валидации;
 * будущей реализацией оркестратора.
 
-Пример нормализованного объекта:
+Пример нормализованного объекта. `normalized_request` описывает задачу генерации; confidence, уточнения и preview относятся к process/session metadata и показаны отдельно ниже.
 
 ```json
 {
@@ -489,6 +493,13 @@ content_format = story
   "output_count": 5,
   "audience_language": "ru",
   "result_language": "ru",
+  "current_config": {
+    "truth_mode": "TRUTH",
+    "utility_mode": "NARRATIVE",
+    "target_age": "3",
+    "text_style_base": "calm",
+    "image_style": "cartoon"
+  },
   "main_subject": "ёжик",
   "subjects": [
     {
@@ -536,46 +547,63 @@ content_format = story
     "avoid": [],
     "recent_topics": []
   },
+  "visual_preferences": {
+    "image_style": "cartoon",
+    "target_device": null,
+    "visual_output_type": "single_image_card"
+  },
   "prompt_context": {
     "resolved_layers": [
       {
         "type": "content_format",
-        "id": "content_formats/story/BASE",
+        "id": "CONTENT_FORMAT_STORY",
         "source": "docs/03_PROMPTS/content_formats/story/BASE.md"
       },
       {
         "type": "truth_mode",
-        "id": "truth_modes/TRUTH/BASE",
+        "id": "TRUTH_BASE",
         "source": "docs/03_PROMPTS/truth_modes/TRUTH/BASE.md"
       },
       {
         "type": "entity",
-        "id": "truth_modes/TRUTH/characters/animals/HEDGEHOG",
+        "id": "TRUTH_ANIMAL_HEDGEHOG",
         "source": "docs/03_PROMPTS/truth_modes/TRUTH/characters/animals/HEDGEHOG.md"
       }
     ],
     "fallback_layers": [],
     "unresolved_details": []
-  },
-  "confidence": {
-    "content_format": 90,
-    "truth_mode": 85,
-    "utility_mode": 80,
-    "target_age": 95,
-    "main_subject": 95,
-    "output_count": 90,
-    "audience_language": 95,
-    "result_language": 95,
-    "text_style_base": 75,
-    "substyle": 80
-  },
-  "requires_clarification": false,
-  "clarification_reason": null,
-  "preview_text": "Я подготовлю 5 спокойных правдивых историй про ёжика зимой в лесу для ребёнка 3 лет. Тексты будут реалистичными, простыми и подходящими для чтения ребёнку."
+  }
 }
 ```
 
-Названия полей могут уточняться при переходе к технической реализации. Важно не конкретное имя каждого поля, а сама логика: после нормализации у системы должен быть структурированный объект, в котором отделены базовые параметры, жёсткие требования, мягкие предпочтения, уверенность интерпретации и текст preview.
+Process/session metadata первого этапа хранится отдельно:
+
+```json
+{
+  "interpretation_state": {
+    "confidence": {
+      "content_format": 90,
+      "truth_mode": 85,
+      "utility_mode": 80,
+      "target_age": 95,
+      "main_subject": 95,
+      "output_count": 90,
+      "audience_language": 95,
+      "result_language": 95,
+      "text_style_base": 75,
+      "substyle": 80
+    },
+    "requires_clarification": false,
+    "clarification_reason": null
+  },
+  "preview_state": {
+    "preview_text": "Я подготовлю 5 спокойных правдивых историй про ёжика зимой в лесу для ребёнка 3 лет. Тексты будут реалистичными, простыми и подходящими для чтения ребёнку.",
+    "shown_to_user": true
+  }
+}
+```
+
+Названия полей могут уточняться при переходе к технической реализации. Важно не конкретное имя каждого поля, а сама логика: после нормализации у системы должен быть структурированный объект, в котором отделены базовые параметры, жёсткие требования, мягкие предпочтения, prompt context и process metadata первого этапа.
 
 ---
 
@@ -624,7 +652,7 @@ content_format = story
   "resolved_layers": [
     {
       "type": "entity",
-      "id": "truth_modes/TRUTH/characters/animals/PARROT",
+      "id": "TRUTH_ANIMAL_PARROT",
       "source": "docs/03_PROMPTS/truth_modes/TRUTH/characters/animals/PARROT.md"
     }
   ],
@@ -1288,6 +1316,8 @@ Preview должен показываться всегда перед основ
 
 Этот раздел содержит короткие внутренние примеры для проверки логики первого блока. Это не user-facing сценарии, а smoke-тесты для команды, промптов и будущей реализации.
 
+В примерах ниже поля вроде `requires_clarification` и `clarification_reason` относятся к `interpretation_state`, а не к самому `normalized_request`. Они показаны рядом с ключевыми параметрами только для компактности smoke-проверок.
+
 #### 4.15.1 Полный понятный запрос
 
 Пользовательский запрос:
@@ -1515,13 +1545,22 @@ Preview должен показываться всегда перед основ
 Prompt execution context
         │
         ▼
-Генерация candidate texts
+CandidateTextGenerator
         │
         ▼
-Scoring / ranking
+TopicDeduplicator
         │
         ▼
-Последовательная валидация и редактура
+Scorer
+        │
+        ▼
+Ranker
+        │
+        ▼
+Validator / Refiner loop
+        │
+        ▼
+ApprovedTextSelector
         │
         ▼
 Approved texts
@@ -1542,10 +1581,11 @@ Approved texts
         ▼
 [2] Генерация пула candidate texts
         │
-        ├─ topic
+        ├─ theme
         ├─ text
-        ├─ intended utility
-        └─ expected visual idea
+        ├─ utility_points
+        ├─ used_subjects / used_context
+        └─ expected_visual_idea
         │
         ▼
 [3] Проверка разнообразия тем
@@ -1583,10 +1623,10 @@ Approved texts
         └─ failed → следующий candidate
         │
         ▼
-[8] Набран output_count?
+[8] ApprovedTextSelector
         │
-        ├─ да → выход второго этапа
-        └─ нет → fallback: regenerate / предложить безопасные варианты / STOP
+        ├─ approved_count == output_count → выход второго этапа
+        └─ approved_count < output_count → shortage report для orchestration-level fallback
 ```
 
 Эта схема описывает бизнес-логику отбора. Она не фиксирует, сколько именно LLM-вызовов или отдельных агентов будет использовано в реализации.
@@ -1615,7 +1655,8 @@ Approved texts
 Запрос: Расскажи правдивые истории про попугая какаду.
 
 resolved_layers:
-  - TRUTH/characters/animals/birds/PARROT.md
+  - id: TRUTH_ANIMAL_PARROT
+    source: truth_modes/TRUTH/characters/animals/PARROT.md
 
 unresolved_details:
   - factual_detail: "какаду"
@@ -1651,13 +1692,13 @@ unresolved_details:
 
 Второй этап генерирует запас кандидатов больше, чем итоговое количество, запрошенное пользователем.
 
-Для MVP:
+Для MVP `candidate_count` является настройкой оркестратора по умолчанию, а не жёстким продуктовым правилом:
 
 ```text
-candidate_count = 20
+candidate_count_default = 20
 ```
 
-В будущем `candidate_count` может стать функцией от `output_count`.
+В будущем `candidate_count` может стать функцией от `output_count`, сложности запроса, режима и стоимости генерации.
 
 Пример будущей логики:
 
@@ -1842,8 +1883,11 @@ approved_count == output_count
 * тему;
 * финальный текст;
 * вопросы;
+* итоговый score;
+* validation status;
 * служебную информацию о пройденной валидации;
-* ссылки на использованный prompt context / trace metadata, если это нужно для отладки.
+* использованный prompt context;
+* trace refs / metadata, если это нужно для отладки.
 
 Компактная таблица состояний:
 
@@ -1855,7 +1899,7 @@ approved_count == output_count
 | Scoring | score components и общий score |
 | Validation | passed / needs_revision / failed |
 | Refinement | исправленный текст без смены темы |
-| Approval | финальный approved text |
+| Approval | финальный approved text + validation metadata |
 
 ---
 
@@ -1869,7 +1913,9 @@ approved_count < output_count
 
 В этом случае система не должна показывать пользователю кандидатов, которые полностью провалили значимые hard gates, особенно safety.
 
-Базовая MVP-логика:
+`ApprovedTextSelector` не должен сам принимать решение о повторной генерации. Его задача — вернуть `approved_texts`, статус нехватки и безопасные fallback candidates, если они есть. Решение, что делать дальше, принимает orchestration-level branch.
+
+Базовая MVP-логика orchestration-level fallback:
 
 1. Если есть safe fallback candidates, система может предложить пользователю выбрать из 2-3 лучших вариантов без свободного редактирования.
 2. Если safe fallback candidates нет, система предлагает перегенерировать candidate pool.
@@ -1907,6 +1953,7 @@ approved_count < output_count
 * `approved_texts`;
 * темы approved texts;
 * вопросы для разговора с ребенком;
+* validation status / validation summary для каждого approved text;
 * `prompt_context` / trace metadata;
 * ограничения и детали, важные для будущей генерации иллюстраций;
 * информация о fallback-решениях, если они применялись.

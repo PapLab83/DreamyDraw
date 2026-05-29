@@ -61,7 +61,7 @@ approved_texts
 | --- | --- |
 | `normalized_request` | Полные параметры запроса. |
 | `prompt_context` | Resolved/fallback/unresolved layers. |
-| `candidate_count` | Сколько кандидатов создать. |
+| `candidate_count` | Сколько кандидатов создать; приходит из config/default policy. |
 | `stage_prompt_context` | Prompt для генератора. |
 
 ### 2.2 Output
@@ -343,8 +343,11 @@ approved_texts
 | Поле | Краткое объяснение |
 | --- | --- |
 | `ranked_candidates` | Кандидаты по убыванию score. |
+| `validated_candidate_versions` | Финальные версии кандидатов после validation/refinement loop. |
 | `validation_results` | Результаты validation loop. |
 | `output_count` | Сколько текстов нужно. |
+
+`ApprovedTextSelector` утверждает именно `validated_candidate_versions`, а не исходные drafts из `ranked_candidates`. Если кандидат проходил refinement, selector должен брать последнюю валидированную версию текста и вопросов.
 
 ### 8.2 Output
 
@@ -356,33 +359,89 @@ approved_texts
       "theme": "ёжик ищет сухие листья",
       "text": "Финальный текст...",
       "questions": ["..."],
-      "score": 0.80
+      "score": 0.80,
+      "validation_status": "accepted",
+      "validation_summary": "Возраст, truth_mode, subject continuity и safety соблюдены.",
+      "used_context": {
+        "resolved_layers": [],
+        "fallback_layers": [],
+        "unresolved_details": []
+      },
+      "trace_refs": {}
     }
   ],
   "shortage": {
     "requested": 5,
     "approved": 5,
     "status": "enough"
-  }
+  },
+  "safe_fallback_candidates": []
 }
 ```
 
 | Поле | Краткое объяснение |
 | --- | --- |
 | `approved_texts` | Итоговые тексты второго этапа. |
+| `validation_status` | Итоговое состояние проверки текста. |
+| `validation_summary` | Краткое резюме пройденной проверки. |
+| `used_context` | Какие prompt layers и детали реально учтены. |
+| `trace_refs` | Ссылки на trace/debug metadata, если есть. |
 | `shortage` | Хватило ли валидных текстов. |
 | `requested` | Сколько просил пользователь. |
 | `approved` | Сколько удалось набрать. |
 | `status` | `enough` или причина нехватки. |
+| `safe_fallback_candidates` | Лучшие безопасные кандидаты, если approved texts не хватило. |
+| `why_safe` | Почему fallback можно показать пользователю. |
+| `known_issues` | Известные некритичные проблемы fallback-кандидата. |
 
 ### 8.3 MVP fallback
 
 Если approved texts не хватает:
 
-* выбрать лучшие по score кандидаты из оставшихся, если они не провалили критичные safety gates;
-* предложить пользователю явно выбрать один из вариантов;
-* не открывать сложный свободный арбитраж в этой редкой ветке;
-* сохранить failure details для анализа.
+* selector возвращает статус нехватки;
+* selector может вернуть лучшие safe fallback candidates из оставшихся, если они не провалили критичные safety gates;
+* selector сохраняет failure details для анализа;
+* повторная генерация, предложение вариантов пользователю или STOP являются orchestration-level решениями, а не обязанностью selector.
+
+Пример shortage output:
+
+```json
+{
+  "approved_texts": [
+    {
+      "candidate_id": "c01",
+      "theme": "ёжик ищет сухие листья",
+      "text": "Финальный текст...",
+      "questions": ["..."],
+      "score": 0.80,
+      "validation_status": "accepted",
+      "validation_summary": "Возраст, truth_mode, subject continuity и safety соблюдены.",
+      "used_context": {
+        "resolved_layers": [],
+        "fallback_layers": [],
+        "unresolved_details": []
+      },
+      "trace_refs": {}
+    }
+  ],
+  "shortage": {
+    "requested": 5,
+    "approved": 1,
+    "status": "not_enough_valid_candidates"
+  },
+  "safe_fallback_candidates": [
+    {
+      "candidate_id": "c07",
+      "theme": "ёжик замечает следы на снегу",
+      "text": "Текст безопасного fallback-кандидата...",
+      "questions": ["..."],
+      "score": 0.71,
+      "why_safe": "Не провалил safety и age gates.",
+      "known_issues": ["Слабее выражена поучительная цель."]
+    }
+  ]
+}
+```
 
 ---
 
