@@ -162,6 +162,18 @@ NODE_APPROVED_TEXT_SELECTOR
 NODE_SHORTAGE_FALLBACK_INTERRUPT
 ```
 
+Canonical `stage_id` использует snake_case и совпадает с graph node ids / ключами `stage_prompt_context`. PascalCase names остаются только display/contract labels.
+
+| `stage_id` | Contract/display label |
+| --- | --- |
+| `candidate_text_generator` | `CandidateTextGenerator` |
+| `topic_deduplicator` | `TopicDeduplicator` |
+| `scorer` | `Scorer` |
+| `ranker` | `Ranker` |
+| `candidate_validator` | `Validator` |
+| `candidate_refiner` | `Refiner` |
+| `approved_text_selector` | `ApprovedTextSelector` |
+
 ### 3.2 Graph overview
 
 ```text
@@ -188,7 +200,16 @@ candidate_layer_resolution
 
 preview
   -> prompt_context_preparation
-  -> candidate_text_generator
+      pass
+        -> candidate_text_generator
+      fail_reresolve
+        -> candidate_layer_resolution
+      fail_clarify
+        -> clarification_interrupt
+      fail_stop
+        -> END
+
+candidate_text_generator
   -> topic_deduplicator
   -> scorer
   -> ranker
@@ -305,6 +326,8 @@ Outputs:
 Rules:
 
 - Classification uses analysis + metadata lookup + confidence.
+- Если вход произошёл после failure в `final_parameter_validation`, classification должна также использовать `interpretation_state.validation_result`.
+- Если вход произошёл после failure в execution lookup/preparation, classification должна также использовать `interpretation_state.execution_lookup_result`.
 - Missing base parameters can be resolved by safe defaults only if the default is explicit and explainable.
 - If there is no meaningful theme after clarification limit, route to `stop`.
 
@@ -353,6 +376,7 @@ Resume value:
 - Не увеличивать attempts при идемпотентном повторном показе существующего `pending_interrupt`.
 - Не увеличивать attempts при обработке `recovered_resume_value`.
 - Сохранять session перед interrupt, когда это возможно.
+- При создании `pending_interrupt` выставлять `is_completed = false`, `completion_status = "waiting_user"`, `current_node = "clarification_interrupt"`.
 - После resume вести граф в `input_analysis`, а не в validation.
 - Выбранный option является input для re-analysis, а не final patch, который применяется вслепую.
 
@@ -439,22 +463,59 @@ Type: deterministic.
 Purpose:
 
 - создать top-level execution snapshot `session.prompt_context` из `normalized_request.prompt_context`;
-- prepare Stage 2 context references;
-- ensure stage prompts can be composed without changing normalized parameters.
+- подготовить Stage 2 context references;
+- гарантировать, что stage prompts можно собрать без изменения normalized parameters.
 
 Outputs:
 
 - `prompt_context`;
-- initial `stage_prompt_context` refs/summaries.
+- initial `stage_prompt_context` refs/summaries;
+- `interpretation_state.execution_lookup_result`.
 
 Rules:
 
-- Do not change `normalized_request`.
+- Не менять `normalized_request`.
 - Не менять layer ids, fallback decisions или unresolved details из `normalized_request.prompt_context`.
 - `session.prompt_context` — runtime execution snapshot и может добавлять `frozen_at`, `source_hash`, `snapshot_hash`, prompt body policy, trace/debug refs и version metadata.
 - Stage 2 читает top-level `session.prompt_context`, а не `normalized_request.prompt_context`.
 - Не загружать все prompt bodies eagerly без необходимости.
 - Хранить в state ids/hashes/summaries, а не большие full prompts.
+- При failure нельзя silently swap layers, fallback layers или unresolved details.
+
+Execution lookup result statuses:
+
+```text
+pass
+fail_reresolve
+fail_clarify
+fail_stop
+```
+
+Failure examples:
+
+- prompt layer id not found;
+- missing prompt source file;
+- invalid metadata;
+- stale source hash;
+- `applies_to` no longer valid;
+- fallback source unavailable;
+- prompt registry/index unavailable.
+
+Routing:
+
+```text
+pass -> candidate_text_generator
+fail_reresolve -> candidate_layer_resolution
+fail_clarify -> clarification_interrupt
+fail_stop -> END
+```
+
+Правила:
+
+- `fail_reresolve` используется для technical/materialization failures, которые можно исправить повторным `candidate_layer_resolution` без изменения user intent.
+- `fail_clarify` используется для failures, где нужен выбор пользователя или relaxation of a hard requirement.
+- `fail_stop` используется для non-recoverable execution lookup failures.
+- Если нужен routing через `request_classification`, она должна читать `interpretation_state.execution_lookup_result` и `interpretation_state.validation_result`; нельзя классифицировать только по старым analysis/confidence.
 
 ### 3.4 Stage 2 nodes
 
@@ -675,6 +736,49 @@ Rules:
 - Увеличивать validation attempt counter per candidate.
 - Если status = `accepted`, записывать принятую версию кандидата в `validated_candidate_versions`.
 - `validation_results` хранит историю попыток; `validated_candidate_versions` хранит версии кандидатов, пригодные для финального выбора.
+- Если validator принимает исходный draft без refiner, всё равно создаётся version object, например `c01_v1`, в `validated_candidate_versions`.
+
+Форма `validated_candidate_versions`:
+
+```json
+{
+  "candidate_id": "c02",
+  "version_id": "c02_v2",
+  "source_candidate_id": "c02",
+  "source_version_id": "c02_v1",
+  "version_origin": "refined",
+  "theme": "ёжик ищет сухие листья",
+  "text": "Финальный или исправленный текст...",
+  "questions": ["Что ёжик искал?"],
+  "score": 0.82,
+  "validation_status": "accepted",
+  "validation_summary": "Возраст, truth_mode, utility goal и subject continuity соблюдены.",
+  "used_context": {
+    "resolved_layers": [],
+    "fallback_layers": [],
+    "unresolved_details": []
+  },
+  "rank_source": {
+    "rank": 1,
+    "total_score": 0.82,
+    "ranked_at": "2026-06-02T12:15:00Z",
+    "ranker_version": 1
+  },
+  "lineage": {
+    "generator_attempt": 1,
+    "validation_attempts": 2,
+    "refinement_attempts": 1,
+    "refiner_changes_summary": "Убрана человеческая речь, сохранена тема."
+  },
+  "trace_refs": {}
+}
+```
+
+Правила:
+
+- `validated_candidate_versions` — source of truth для normal approved text content.
+- `rank_source` сохраняет ranking/order metadata, не превращая `ranked_candidates` в source of text content.
+- `version_origin` = `draft`, если original candidate был accepted без refinement, и `refined`, если версия accepted после refiner.
 
 #### `candidate_refiner`
 
@@ -718,6 +822,21 @@ Immutable fields:
 - Если исправление невозможно без изменения immutable fields, stage возвращает issue/failure и граф переходит к следующему кандидату.
 - Исправленная версия не утверждается самим refiner. Она должна вернуться в `candidate_validator`; только accepted validation result может добавить её в `validated_candidate_versions`.
 
+`route_after_candidate_refiner`:
+
+```text
+revised -> candidate_validator
+cannot_repair -> next ranked candidate validator
+attempts_exhausted -> next ranked candidate validator
+queue_exhausted -> approved_text_selector
+```
+
+Правила:
+
+- `revised` возвращает граф в `candidate_validator` для того же кандидата с новым `version_id`.
+- `cannot_repair` и `attempts_exhausted` двигают rank cursor к следующему кандидату.
+- Если при переходе к следующему кандидату ranked queue исчерпана, route ведёт в `approved_text_selector`.
+
 #### `approved_text_selector`
 
 Type: deterministic/LLM-assisted.
@@ -735,6 +854,8 @@ Inputs:
 - `validated_candidate_versions`;
 - `validation_results`;
 - `normalized_request.output_count`.
+- optional `safe_fallback_candidates` in shortage path only;
+- optional `shortage.fallback_acceptance_policy` after HITL fallback acceptance only.
 
 Правила:
 
@@ -746,9 +867,31 @@ Inputs:
 - Если набрано достаточно accepted versions, выставлять `completion_status = "completed_enough"`.
 - Если accepted versions меньше, чем `output_count`, выставлять `completion_status = "completed_with_shortage"` и сохранять `shortage.requested` / `shortage.approved`.
 - `completed_with_shortage` является terminal status, но не success-equivalent к `completed_enough`; UI/API должны явно показывать shortage.
-- Safe fallback candidates нельзя включать без явной HITL fallback acceptance policy.
+- Safe fallback candidates нельзя включать без явной durable HITL fallback acceptance policy в `shortage.fallback_acceptance_policy`.
+
+Source invariants:
+
+```text
+normal approved_text
+  -> source = validated_candidate_versions only
+
+HITL fallback approved_text
+  -> source = safe_fallback_candidates + explicit shortage.fallback_acceptance_policy only
+```
+
+Правила:
+
+- Normal approved text может появиться только из `validated_candidate_versions`.
+- HITL fallback approved text может появиться только если `shortage.fallback_acceptance_policy.accepted_candidate_ids` явно содержит candidate id.
+- HITL fallback approved text должен выставлять `validation_status = "hitl_fallback_accepted"`.
+- HITL fallback approved text должен сохранять `known_issues` и `why_safe`.
+- HITL fallback approved text не должен вставляться в `validated_candidate_versions`.
 
 Approved text shape:
+
+`approved_texts` is a union of normal accepted texts and HITL fallback accepted texts.
+
+Normal accepted variant:
 
 ```json
 {
@@ -770,6 +913,30 @@ Approved text shape:
 }
 ```
 
+HITL fallback accepted variant:
+
+```json
+{
+  "candidate_id": "c07",
+  "source": "safe_fallback_candidate",
+  "theme": "ёжик замечает следы на снегу",
+  "text": "Текст безопасного fallback-кандидата...",
+  "questions": ["..."],
+  "score": 0.71,
+  "validation_status": "hitl_fallback_accepted",
+  "validation_summary": "Пользователь явно принял safe fallback candidate при shortage.",
+  "why_safe": "Не провалил safety и age gates.",
+  "known_issues": ["Слабее выражена поучительная цель."],
+  "expected_visual_idea": "ёжик у следов на снегу",
+  "used_context": {
+    "resolved_layers": [],
+    "fallback_layers": [],
+    "unresolved_details": []
+  },
+  "trace_refs": {}
+}
+```
+
 Форма `shortage`:
 
 ```json
@@ -780,6 +947,7 @@ Approved text shape:
   "reason": "ranked queue exhausted before output_count",
   "retry_attempts": 0,
   "user_decision": null,
+  "fallback_acceptance_policy": null,
   "history": [
     {
       "attempt": 1,
@@ -796,6 +964,17 @@ Approved text shape:
       "created_at": "2026-06-02T12:20:00Z"
     }
   ]
+}
+```
+
+Форма `shortage.fallback_acceptance_policy`:
+
+```json
+{
+  "accepted_candidate_ids": ["c07"],
+  "accepted_at": "2026-06-02T12:25:00Z",
+  "accepted_by": "user",
+  "known_issues_acknowledged": true
 }
 ```
 
@@ -830,12 +1009,12 @@ shortage_fallback_interrupt
 Правила:
 
 - `accept_fewer` сохраняет текущие `approved_texts`, сохраняет `shortage.status` и выставляет `completion_status = "completed_with_shortage_user_accepted"`.
-- `accept_safe_fallback` пишет `shortage.user_decision = "accept_safe_fallback"` и передаёт `fallback_acceptance_policy` в `approved_text_selector`.
-- `fallback_acceptance_policy` содержит явные `safe_fallback_candidate_ids`, которые пользователь согласился принять.
+- `accept_safe_fallback` пишет `shortage.user_decision = "accept_safe_fallback"` и сохраняет durable `shortage.fallback_acceptance_policy`.
+- `shortage.fallback_acceptance_policy.accepted_candidate_ids` содержит явные safe fallback candidate ids, которые пользователь согласился принять.
 - Selector может включить только явно принятые safe fallback candidates и должен пометить их `validation_status = "hitl_fallback_accepted"`.
 - HITL-accepted fallback candidates не считаются обычными `validated_candidate_versions`; они отдельно маркируются в `approved_texts` и сохраняют `known_issues` / `why_safe`.
 - Перед `retry_generation` текущий shortage snapshot добавляется в `shortage.history`.
-- `retry_generation` увеличивает `shortage.retry_attempts` и ведёт в `candidate_text_generator`.
+- `retry_generation` увеличивает `shortage.retry_attempts`, пересоздаёт active shortage state и ведёт в `candidate_text_generator`.
 - `stop` выставляет `completion_status = "stopped_by_user"` без изменения `approved_texts`.
 
 При `retry_generation` сохраняются:
@@ -857,6 +1036,8 @@ shortage_fallback_interrupt
 - `validated_candidate_versions`;
 - `approved_texts`;
 - `safe_fallback_candidates`;
+- active `shortage.user_decision`;
+- active `shortage.fallback_acceptance_policy`;
 - `pipeline_counters.current_rank_index`;
 - `pipeline_counters.accepted_count`;
 - per-candidate validation/refinement counters.
@@ -872,6 +1053,7 @@ Recommended functions:
 ```text
 route_after_request_classification
 route_after_final_parameter_validation
+route_after_prompt_context_preparation
 route_after_candidate_validator
 route_after_candidate_refiner
 route_after_approved_text_selector
@@ -892,7 +1074,25 @@ stop -> END
 
 После `clarification_interrupt` граф идёт в `input_analysis`.
 
-### 4.2 Validation loop routing
+### 4.2 Prompt context preparation routing
+
+`route_after_prompt_context_preparation`:
+
+```text
+pass -> candidate_text_generator
+fail_reresolve -> candidate_layer_resolution
+fail_clarify -> clarification_interrupt
+fail_stop -> END
+```
+
+Правила:
+
+- Routing читает `interpretation_state.execution_lookup_result.status`.
+- `fail_reresolve` не является user clarification; это повторный resolution без silent layer swap.
+- `fail_clarify` создаёт/обновляет clarification payload с причиной execution lookup failure.
+- `fail_stop` выставляет `is_completed = true`, `completion_status = "failed"` и сохраняет `interpretation_state.execution_lookup_result` с issues.
+
+### 4.3 Validation loop routing
 
 `candidate_validator` routing uses:
 
@@ -916,7 +1116,7 @@ queue_exhausted -> approved_text_selector
 
 Реализация может представить "next ranked candidate validator" как обновление loop cursor в state и возврат в ту же ноду `candidate_validator`.
 
-### 4.3 Shortage routing
+### 4.4 Shortage routing
 
 `route_after_approved_text_selector`:
 
@@ -951,7 +1151,7 @@ stop
 
 - `END` после shortage должен сохранять `completion_status = "completed_with_shortage"`, `completed_with_shortage_user_accepted` или `stopped_by_user` в зависимости от действия пользователя, а не `completed_enough`.
 - `retry_generation` должен reset Stage 2 candidate/ranking/validation state согласно правилам в `shortage_fallback_interrupt`.
-- `accept_safe_fallback` должен передать `fallback_acceptance_policy` в selector; selector не должен выводить acceptance только из наличия кандидатов.
+- `accept_safe_fallback` должен сохранить durable `shortage.fallback_acceptance_policy`; selector читает это поле и не должен выводить acceptance только из наличия кандидатов.
 
 ---
 
@@ -1165,6 +1365,14 @@ Minimum input request:
   "validation_result": {
     "status": "pass",
     "issues": []
+  },
+  "execution_lookup_result": {
+    "status": "pass",
+    "failure_type": null,
+    "failed_layer_id": null,
+    "failed_source": null,
+    "issues": [],
+    "route_reason": null
   }
 }
 ```
@@ -1317,7 +1525,9 @@ Shortage example:
 Правила:
 
 - Interrupt node создаёт `pending_interrupt`, сохраняет session, затем вызывает LangGraph `interrupt(payload)`.
+- При создании `pending_interrupt` interrupt node выставляет `is_completed = false`, `completion_status = "waiting_user"`, `current_node = pending_interrupt.node`.
 - После успешной обработки resume interrupt node очищает `pending_interrupt`.
+- После успешной обработки resume interrupt node выставляет `completion_status = "running"` до следующего terminal/waiting state.
 - Повторный вход в interrupt node только для повторного показа существующего `pending_interrupt` должен быть идемпотентным.
 - Повторный показ существующего pending payload не должен увеличивать clarification attempts или shortage attempts.
 - Attempt counters увеличиваются только при создании нового interrupt payload, а не при восстановлении pending payload из JSONStorage.
@@ -1437,6 +1647,8 @@ Rules:
 - It must not choose different fallback layers.
 - It must not change unresolved details.
 - It must not change the interpretation shown in preview.
+- If verification fails, route via `pass`, `fail_reresolve`, `fail_clarify` or `fail_stop` as defined in `prompt_context_preparation`.
+- It must not silently swap to a different prompt layer to recover from missing source, invalid metadata or stale hashes.
 
 ### 6.5 PromptComposer
 
@@ -1689,7 +1901,12 @@ At minimum, implementation must pass scenarios for:
 - contradiction `TRUTH` + fantastic hard detail;
 - unsupported hard style requirement;
 - refiner must not change theme/main subject/character profile;
-- selector must use validated candidate versions.
+- selector must use validated candidate versions;
+- accepted draft создаёт item в `validated_candidate_versions` даже без refinement;
+- execution lookup missing source ведёт в reresolve/clarify/stop и не делает silent layer swap;
+- interrupt restart сохраняет `completion_status = waiting_user` и `pending_interrupt`;
+- recovered interrupt resume не увеличивает clarification attempts дважды;
+- HITL fallback approved text маркируется `hitl_fallback_accepted`.
 
 Acceptance is behavioral, not snapshot text equality.
 
@@ -1710,7 +1927,11 @@ The orchestrator implementation is complete when:
 - hard gates can exclude candidates before approval;
 - validation/refinement loop respects per-candidate counters;
 - refiner preserves immutable fields;
-- selector approves validated versions only;
+- selector читает normal approved text content из `validated_candidate_versions`, а не из `candidate_texts` или `ranked_candidates`;
+- selector может включить HITL fallback только из `safe_fallback_candidates` плюс explicit `shortage.fallback_acceptance_policy`;
+- accepted draft создаёт объект `validated_candidate_versions`;
+- execution lookup failure никогда не делает silent prompt layer swap;
+- interrupt nodes сохраняют `completion_status = waiting_user` и `pending_interrupt`;
 - final output is `approved_texts`;
 - shortage is explicit when output count is not met;
 - no image/animation node is part of current graph;
