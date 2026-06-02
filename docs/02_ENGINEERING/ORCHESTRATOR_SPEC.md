@@ -1906,7 +1906,8 @@ At minimum, implementation must pass scenarios for:
 - execution lookup missing source ведёт в reresolve/clarify/stop и не делает silent layer swap;
 - interrupt restart сохраняет `completion_status = waiting_user` и `pending_interrupt`;
 - recovered interrupt resume не увеличивает clarification attempts дважды;
-- HITL fallback approved text маркируется `hitl_fallback_accepted`.
+- HITL fallback approved text маркируется `hitl_fallback_accepted`;
+- `retry_generation` очищает active `shortage.fallback_acceptance_policy`.
 
 Acceptance is behavioral, not snapshot text equality.
 
