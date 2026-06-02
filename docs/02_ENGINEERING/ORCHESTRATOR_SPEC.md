@@ -206,9 +206,9 @@ preview
         -> approved_text_selector
 
 approved_text_selector
-  -> END if enough
-  -> shortage_fallback_interrupt? if shortage HITL enabled
-  -> END if shortage HITL disabled
+  -> END with completion_status=completed_enough if enough
+  -> shortage_fallback_interrupt if shortage HITL enabled
+  -> END with completion_status=completed_with_shortage if shortage HITL disabled
 ```
 
 ### 3.3 Stage 1 nodes
@@ -266,15 +266,17 @@ Purpose:
 Outputs:
 
 - `interpretation_state.lookup_hints`;
-- draft `prompt_context` candidates;
 - per-field lookup confidence.
 
 Rules:
 
 - Read YAML metadata only.
 - Do not load full prompt bodies.
-- Do not produce final execution context.
-- Do not promise unsupported layers.
+- Не писать в `normalized_request.prompt_context`.
+- Не писать в top-level `session.prompt_context`.
+- Сохранять результат lookup только в `interpretation_state.lookup_hints`: `candidate_layers`, `fallback_candidates`, `unresolved_details_candidates`, applicability notes и clarification signals.
+- Не создавать final execution context.
+- Не обещать unsupported layers.
 
 #### `request_classification`
 
@@ -345,12 +347,14 @@ Resume value:
 }
 ```
 
-Rules:
+Правила:
 
-- Increment `interpretation_state.clarification_attempts`.
-- Persist session before interrupt when possible.
-- After resume, route to `input_analysis`, not to validation.
-- A selected option is input for re-analysis, not a final patch blindly applied.
+- Увеличивать `interpretation_state.clarification_attempts` только при создании нового clarification `pending_interrupt`.
+- Не увеличивать attempts при идемпотентном повторном показе существующего `pending_interrupt`.
+- Не увеличивать attempts при обработке `recovered_resume_value`.
+- Сохранять session перед interrupt, когда это возможно.
+- После resume вести граф в `input_analysis`, а не в validation.
+- Выбранный option является input для re-analysis, а не final patch, который применяется вслепую.
 
 #### `candidate_layer_resolution`
 
@@ -367,7 +371,6 @@ Purpose:
 Outputs:
 
 - `normalized_request.prompt_context`;
-- session-level `prompt_context`;
 - `interpretation_state.layer_resolution_summary`.
 
 Rules:
@@ -376,6 +379,8 @@ Rules:
 - File path is stored separately in `source`.
 - Fallback decisions include `requested`, `fallback_layer_id`, `source`, `reason`.
 - Hard unsupported requirements must route back to clarification or stop.
+- `normalized_request.prompt_context` — canonical interpretation result: только resolved/fallback/unresolved decisions.
+- `normalized_request.prompt_context` не является runtime/debug object и не должен содержать `frozen_at`, trace refs, execution hashes, prompt body policy или Langfuse metadata.
 
 #### `final_parameter_validation`
 
@@ -433,7 +438,7 @@ Type: deterministic.
 
 Purpose:
 
-- freeze execution-level `prompt_context`;
+- создать top-level execution snapshot `session.prompt_context` из `normalized_request.prompt_context`;
 - prepare Stage 2 context references;
 - ensure stage prompts can be composed without changing normalized parameters.
 
@@ -445,8 +450,11 @@ Outputs:
 Rules:
 
 - Do not change `normalized_request`.
-- Do not load all prompt bodies eagerly unless required.
-- Store ids/hashes/summaries in state, not huge full prompts.
+- Не менять layer ids, fallback decisions или unresolved details из `normalized_request.prompt_context`.
+- `session.prompt_context` — runtime execution snapshot и может добавлять `frozen_at`, `source_hash`, `snapshot_hash`, prompt body policy, trace/debug refs и version metadata.
+- Stage 2 читает top-level `session.prompt_context`, а не `normalized_request.prompt_context`.
+- Не загружать все prompt bodies eagerly без необходимости.
+- Хранить в state ids/hashes/summaries, а не большие full prompts.
 
 ### 3.4 Stage 2 nodes
 
@@ -551,6 +559,7 @@ Output shape:
         "safety": "pass",
         "truth_fit": "pass",
         "age_fit": "pass",
+        "utility_goal": "pass",
         "subject_continuity": "pass",
         "hard_details": "pass",
         "character_consistency": "pass"
@@ -575,6 +584,8 @@ Rules:
 - Total score is meaningful only for candidates that pass critical gates.
 - MVP may use one agent for all components.
 - Schema remains multi-component for future split agents.
+- `utility_goal` является critical hard gate для `utility_mode = TEACHING`.
+- Для `utility_mode = NARRATIVE` utility fit может оставаться score component, если нет конкретной hard utility goal.
 
 #### `ranker`
 
@@ -732,6 +743,10 @@ Inputs:
 - Никогда не включать кандидатов с critical hard gate failures.
 - Не включать duplicate themes.
 - `candidate_texts` и `ranked_candidates` не являются допустимыми источниками финального текста для selector; это только context и ordering inputs.
+- Если набрано достаточно accepted versions, выставлять `completion_status = "completed_enough"`.
+- Если accepted versions меньше, чем `output_count`, выставлять `completion_status = "completed_with_shortage"` и сохранять `shortage.requested` / `shortage.approved`.
+- `completed_with_shortage` является terminal status, но не success-equivalent к `completed_enough`; UI/API должны явно показывать shortage.
+- Safe fallback candidates нельзя включать без явной HITL fallback acceptance policy.
 
 Approved text shape:
 
@@ -755,14 +770,32 @@ Approved text shape:
 }
 ```
 
-Shortage shape:
+Форма `shortage`:
 
 ```json
 {
   "requested": 5,
   "approved": 3,
   "status": "not_enough_valid_candidates",
-  "reason": "ranked queue exhausted before output_count"
+  "reason": "ranked queue exhausted before output_count",
+  "retry_attempts": 0,
+  "user_decision": null,
+  "history": [
+    {
+      "attempt": 1,
+      "requested": 5,
+      "approved": 3,
+      "status": "not_enough_valid_candidates",
+      "reason": "ranked queue exhausted before output_count",
+      "hard_gate_failure_counts": {
+        "truth_fit": 4,
+        "age_fit": 2,
+        "utility_goal": 1
+      },
+      "user_decision": "retry_generation",
+      "created_at": "2026-06-02T12:20:00Z"
+    }
+  ]
 }
 ```
 
@@ -770,14 +803,63 @@ Shortage shape:
 
 Type: optional LangGraph interrupt.
 
-MVP may skip this interrupt and finish with shortage. If enabled, options are:
+MVP может пропустить этот interrupt и завершиться с shortage. Если HITL включён, доступны варианты:
 
-- accept fewer approved texts;
-- accept safe fallback candidates with known issues;
-- retry candidate generation;
-- stop.
+- принять меньше approved texts;
+- принять safe fallback candidates с known issues;
+- повторить candidate generation;
+- остановиться.
 
-`safe_fallback_candidates` exist only for shortage path and must not be mixed into `approved_texts` without explicit selector/user decision.
+`safe_fallback_candidates` существуют только для shortage path и не должны смешиваться с `approved_texts` без явного решения selector/user.
+
+Исполнимый routing:
+
+```text
+approved_text_selector
+  enough -> END
+  shortage + shortage_hitl_enabled=false -> END
+  shortage + shortage_hitl_enabled=true -> shortage_fallback_interrupt
+
+shortage_fallback_interrupt
+  accept_fewer -> END
+  accept_safe_fallback -> approved_text_selector
+  retry_generation -> candidate_text_generator
+  stop -> END
+```
+
+Правила:
+
+- `accept_fewer` сохраняет текущие `approved_texts`, сохраняет `shortage.status` и выставляет `completion_status = "completed_with_shortage_user_accepted"`.
+- `accept_safe_fallback` пишет `shortage.user_decision = "accept_safe_fallback"` и передаёт `fallback_acceptance_policy` в `approved_text_selector`.
+- `fallback_acceptance_policy` содержит явные `safe_fallback_candidate_ids`, которые пользователь согласился принять.
+- Selector может включить только явно принятые safe fallback candidates и должен пометить их `validation_status = "hitl_fallback_accepted"`.
+- HITL-accepted fallback candidates не считаются обычными `validated_candidate_versions`; они отдельно маркируются в `approved_texts` и сохраняют `known_issues` / `why_safe`.
+- Перед `retry_generation` текущий shortage snapshot добавляется в `shortage.history`.
+- `retry_generation` увеличивает `shortage.retry_attempts` и ведёт в `candidate_text_generator`.
+- `stop` выставляет `completion_status = "stopped_by_user"` без изменения `approved_texts`.
+
+При `retry_generation` сохраняются:
+
+- `normalized_request`;
+- `interpretation_state`;
+- `preview_state`;
+- `prompt_context`;
+- базовые refs из `stage_prompt_context`;
+- `shortage.history`.
+
+При `retry_generation` очищаются или пересоздаются:
+
+- `candidate_texts`;
+- `deduplication_results`;
+- `scores`;
+- `ranked_candidates`;
+- `validation_results`;
+- `validated_candidate_versions`;
+- `approved_texts`;
+- `safe_fallback_candidates`;
+- `pipeline_counters.current_rank_index`;
+- `pipeline_counters.accepted_count`;
+- per-candidate validation/refinement counters.
 
 ---
 
@@ -808,7 +890,7 @@ unsupported_hard_requirement -> clarification_interrupt
 stop -> END
 ```
 
-After `clarification_interrupt`, the graph routes to `input_analysis`.
+После `clarification_interrupt` граф идёт в `input_analysis`.
 
 ### 4.2 Validation loop routing
 
@@ -832,7 +914,44 @@ rejected -> next ranked candidate validator
 queue_exhausted -> approved_text_selector
 ```
 
-Implementation can represent "next ranked candidate validator" by updating loop cursor in state and returning to the same `candidate_validator` node.
+Реализация может представить "next ranked candidate validator" как обновление loop cursor в state и возврат в ту же ноду `candidate_validator`.
+
+### 4.3 Shortage routing
+
+`route_after_approved_text_selector`:
+
+```text
+shortage.status = enough
+  -> END
+
+shortage.status != enough and shortage_hitl_enabled = false
+  -> END
+
+shortage.status != enough and shortage_hitl_enabled = true
+  -> shortage_fallback_interrupt
+```
+
+`route_after_shortage_fallback`:
+
+```text
+accept_fewer
+  -> END
+
+accept_safe_fallback
+  -> approved_text_selector
+
+retry_generation
+  -> candidate_text_generator
+
+stop
+  -> END
+```
+
+Правила routing:
+
+- `END` после shortage должен сохранять `completion_status = "completed_with_shortage"`, `completed_with_shortage_user_accepted` или `stopped_by_user` в зависимости от действия пользователя, а не `completed_enough`.
+- `retry_generation` должен reset Stage 2 candidate/ranking/validation state согласно правилам в `shortage_fallback_interrupt`.
+- `accept_safe_fallback` должен передать `fallback_acceptance_policy` в selector; selector не должен выводить acceptance только из наличия кандидатов.
 
 ---
 
@@ -847,6 +966,7 @@ session_id
 request
 current_node
 is_completed
+completion_status
 normalized_request
 interpretation_state
 preview_state
@@ -863,9 +983,30 @@ shortage
 safe_fallback_candidates
 pipeline_counters
 trace_refs
+pending_interrupt
 ```
 
-Old fields from the previous orchestration model should not be part of the new business flow. If kept temporarily for CLI compatibility, they must be marked as deprecated and not read by new nodes.
+Старые поля предыдущей orchestration model не должны быть частью нового business flow. Если они временно сохраняются для CLI compatibility, их нужно пометить deprecated и не читать в новых нодах.
+
+Значения `completion_status`:
+
+```text
+running
+waiting_user
+completed_enough
+completed_with_shortage
+completed_with_shortage_user_accepted
+stopped_by_user
+failed
+```
+
+Правила:
+
+- `is_completed = true` означает, что graph достиг terminal state.
+- `completion_status = completed_enough` означает, что requested `output_count` выполнен.
+- `completion_status = completed_with_shortage` означает terminal shortage и должен явно отображаться UI/API.
+- `completion_status = completed_with_shortage_user_accepted` означает, что пользователь явно принял fewer/fallback results.
+- `completed_with_shortage` и `completed_with_shortage_user_accepted` не эквивалентны full success.
 
 ### 5.2 `request`
 
@@ -996,12 +1137,12 @@ Minimum input request:
 }
 ```
 
-Rules:
+Правила:
 
-- `confidence`, `requires_clarification` and `preview_text` are not inside `normalized_request`.
-- `current_config` is a snapshot/default source, not Stage 2 execution source.
-- `user_context` is object-with-empty-state, not `null`.
-- `visual_preferences` are preserved for downstream but not used directly by text pipeline.
+- `confidence`, `requires_clarification` и `preview_text` не находятся внутри `normalized_request`.
+- `current_config` — snapshot/default source, а не Stage 2 execution source.
+- `user_context` — object-with-empty-state, не `null`.
+- `visual_preferences` сохраняются для downstream, но text pipeline не использует их напрямую.
 
 ### 5.4 `interpretation_state`
 
@@ -1042,6 +1183,12 @@ Rules:
 
 ```json
 {
+  "source": "normalized_request.prompt_context",
+  "frozen_at": "2026-06-02T12:08:00Z",
+  "version": 1,
+  "source_hash": "hash-of-normalized-request-prompt-context",
+  "snapshot_hash": "hash-of-execution-snapshot",
+  "body_policy": "lazy_not_persisted",
   "resolved_layers": [
     {
       "type": "entity",
@@ -1055,13 +1202,54 @@ Rules:
 }
 ```
 
-Rules:
+Правила:
 
-- `id` is canonical stable UPPER_SNAKE.
-- `source` stores the prompt file path.
-- Missing narrow details can be stored as unresolved freeform context.
+- `id` — canonical stable UPPER_SNAKE.
+- `source` хранит путь к prompt file.
+- Узкие детали без точного слоя могут храниться как unresolved freeform context.
+- Top-level `prompt_context` является execution snapshot, а не canonical interpretation object.
+- Layer decisions копируются из `normalized_request.prompt_context`.
+- Execution metadata хранится здесь, а не внутри `normalized_request.prompt_context`.
 
-### 5.7 `pipeline_counters`
+### 5.7 `stage_prompt_context`
+
+`stage_prompt_context` хранит компактные per-stage context refs и summaries, созданные `PromptComposer`. По умолчанию он не должен хранить full prompt bodies.
+
+Минимальная форма:
+
+```json
+{
+  "candidate_text_generator": {
+    "stage": "candidate_text_generator",
+    "source_prompt_context_hash": "hash-of-session-prompt-context",
+    "stage_context_hash": "hash-of-stage-context-summary-and-refs",
+    "layer_ids": [
+      "CONTENT_FORMAT_STORY",
+      "TRUTH_BASE",
+      "AGE_3",
+      "TRUTH_ANIMAL_HEDGEHOG"
+    ],
+    "fallback_layer_ids": [],
+    "unresolved_detail_labels": [],
+    "body_policy": "lazy_not_persisted",
+    "context_summary": "Полный creative context для спокойных правдивых историй про ёжика для возраста 3.",
+    "created_at": "2026-06-02T12:10:00Z",
+    "version": 1
+  }
+}
+```
+
+Правила:
+
+- Key — stage id.
+- `source_prompt_context_hash` идентифицирует top-level `session.prompt_context` snapshot, использованный как input.
+- `stage_context_hash` идентифицирует конкретный stage context refs/summary.
+- Если `session.prompt_context.snapshot_hash` меняется, существующие stage contexts становятся invalid.
+- Full prompt bodies загружаются lazy и по умолчанию не сохраняются в `SessionState`.
+- Полный prompt text можно логировать в Langfuse или debug artifacts только согласно debug/prompt logging policy.
+- Stage nodes используют эту единую форму и не должны изобретать несовместимые per-node context formats.
+
+### 5.8 `pipeline_counters`
 
 ```json
 {
@@ -1076,6 +1264,67 @@ Rules:
   "accepted_count": 0
 }
 ```
+
+### 5.9 `pending_interrupt`
+
+`pending_interrupt` — durable state для восстановления HITL после restart процесса. Он хранится в `SessionState` / `JSONStorage`, а не в `MemorySaver`.
+
+Clarification example:
+
+```json
+{
+  "type": "request_clarification",
+  "node": "clarification_interrupt",
+  "status": "waiting",
+  "payload": {
+    "type": "request_clarification",
+    "reason": "ambiguous_subject",
+    "message": "Нужно уточнить тему.",
+    "options": []
+  },
+  "created_at": "2026-06-02T12:00:00Z",
+  "attempt": 1,
+  "resume_schema": {
+    "selected_option_id": "string|null",
+    "freeform_text": "string|null"
+  }
+}
+```
+
+Shortage example:
+
+```json
+{
+  "type": "shortage_fallback",
+  "node": "shortage_fallback_interrupt",
+  "status": "waiting",
+  "payload": {
+    "type": "shortage_fallback",
+    "shortage": {
+      "requested": 5,
+      "approved": 3,
+      "status": "not_enough_valid_candidates"
+    }
+  },
+  "created_at": "2026-06-02T12:05:00Z",
+  "attempt": 1,
+  "resume_schema": {
+    "action": "accept_fewer|accept_safe_fallback|retry_generation|stop"
+  }
+}
+```
+
+Правила:
+
+- Interrupt node создаёт `pending_interrupt`, сохраняет session, затем вызывает LangGraph `interrupt(payload)`.
+- После успешной обработки resume interrupt node очищает `pending_interrupt`.
+- Повторный вход в interrupt node только для повторного показа существующего `pending_interrupt` должен быть идемпотентным.
+- Повторный показ существующего pending payload не должен увеличивать clarification attempts или shortage attempts.
+- Attempt counters увеличиваются только при создании нового interrupt payload, а не при восстановлении pending payload из JSONStorage.
+- Если состояние `MemorySaver` ещё доступно, resume может использовать `Command(resume=...)`.
+- Если состояние `MemorySaver` потеряно, CLI/API читает `pending_interrupt` из JSONStorage, получает ответ пользователя и вызывает graph с recovered resume value в `GraphState.user_input` или эквивалентном поле.
+- `entry_point_from_session` ведёт в `pending_interrupt.node`, когда `pending_interrupt.status = "waiting"`.
+- Interrupt node, запущенная с recovered resume value, обрабатывает его без повторного вызова `interrupt()`.
 
 ---
 
@@ -1167,7 +1416,7 @@ It must not load full prompt bodies.
 
 ### 6.4 Execution lookup
 
-Used after request is complete enough to execute.
+Used after request is complete enough to execute and after `candidate_layer_resolution` has already written `normalized_request.prompt_context`.
 
 Output:
 
@@ -1179,7 +1428,15 @@ Output:
 }
 ```
 
-Execution lookup fixes what Stage 2 will use. It must not change the interpretation shown in preview.
+Execution lookup/preparation materializes and verifies the already resolved `normalized_request.prompt_context` into top-level `session.prompt_context`.
+
+Rules:
+
+- It may add source refs, hashes, `frozen_at`, version and runtime metadata.
+- It must not choose different layer ids.
+- It must not choose different fallback layers.
+- It must not change unresolved details.
+- It must not change the interpretation shown in preview.
 
 ### 6.5 PromptComposer
 
@@ -1317,9 +1574,16 @@ Between process restarts, recovery uses:
 
 - `SessionState`;
 - `current_node`;
-- pending HITL fields;
+- `pending_interrupt`;
 - validation loop cursor;
 - JSONStorage.
+
+Re-entry rules:
+
+- Если `pending_interrupt.status = "waiting"`, `entry_point_from_session` ведёт в `pending_interrupt.node`.
+- `current_node` remains a debug marker; it is not the sole router for HITL recovery.
+- Если recovered resume value присутствует, interrupt node обрабатывает его и очищает `pending_interrupt`.
+- Если recovered resume value отсутствует, CLI/API показывает `pending_interrupt.payload` и ждёт ввод пользователя без создания новой попытки.
 
 Persistent LangGraph checkpointer can be introduced later, but is not required for Stage 1-2 MVP.
 
