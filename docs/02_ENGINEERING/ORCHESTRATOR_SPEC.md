@@ -162,7 +162,7 @@ NODE_APPROVED_TEXT_SELECTOR
 NODE_SHORTAGE_FALLBACK_INTERRUPT
 ```
 
-Canonical `stage_id` использует snake_case и совпадает с graph node ids / ключами `stage_prompt_context`. PascalCase names остаются только display/contract labels.
+Canonical `stage_id` использует snake_case и совпадает с graph node ids / `stage_prompt_context.entries[].stage`. PascalCase names остаются только display/contract labels.
 
 | `stage_id` | Contract/display label |
 | --- | --- |
@@ -567,6 +567,7 @@ Rules:
 - Respect `subject_continuity_policy`.
 - Preserve `main_subject`, required subjects and `character_profile`.
 - Use `visual_preferences` only indirectly, if at all, for `expected_visual_idea`.
+- `candidate_text_generator` не обязан писать `version_id`; initial draft version id создаётся при входе в validation loop.
 
 #### `topic_deduplicator`
 
@@ -732,7 +733,10 @@ rejected
 Rules:
 
 - Валидировать кандидатов последовательно по ranking.
-- Останавливать validation loop, когда accepted count достигает `output_count`.
+- Validator читает текущий текст через `validation_loop_state.active_candidate_id`, `active_version_id` и `active_text_source`.
+- Для draft version `active_text_source = "candidate_texts"`, для версии после refiner — `active_text_source = "refined_candidate_versions"`.
+- Validator не должен выбирать текст только по `candidate_id`, если `validation_loop_state.active_version_id` указывает на revised version.
+- Останавливать validation loop, когда accepted count в `validation_loop_state` достигает `output_count`.
 - Увеличивать validation attempt counter per candidate.
 - Если status = `accepted`, записывать принятую версию кандидата в `validated_candidate_versions`.
 - `validation_results` хранит историю попыток; `validated_candidate_versions` хранит версии кандидатов, пригодные для финального выбора.
@@ -779,6 +783,7 @@ Rules:
 - `validated_candidate_versions` — source of truth для normal approved text content.
 - `rank_source` сохраняет ranking/order metadata, не превращая `ranked_candidates` в source of text content.
 - `version_origin` = `draft`, если original candidate был accepted без refinement, и `refined`, если версия accepted после refiner.
+- `refined_candidate_versions` хранит revised versions до повторной validation; это не source of truth для final approval.
 
 #### `candidate_refiner`
 
@@ -820,6 +825,8 @@ Immutable fields:
 - Максимум refinement attempts per candidate в MVP: `2`.
 - Refiner не должен молча менять immutable fields.
 - Если исправление невозможно без изменения immutable fields, stage возвращает issue/failure и граф переходит к следующему кандидату.
+- Исправленная версия записывается в `refined_candidate_versions` как durable candidate version, ожидающая validation.
+- После `status = "revised"` refiner обновляет `validation_loop_state.active_version_id`, `active_version_origin = "refined"` и `active_text_source = "refined_candidate_versions"`.
 - Исправленная версия не утверждается самим refiner. Она должна вернуться в `candidate_validator`; только accepted validation result может добавить её в `validated_candidate_versions`.
 
 `route_after_candidate_refiner`:
@@ -864,8 +871,12 @@ Inputs:
 - Никогда не включать кандидатов с critical hard gate failures.
 - Не включать duplicate themes.
 - `candidate_texts` и `ranked_candidates` не являются допустимыми источниками финального текста для selector; это только context и ordering inputs.
-- Если набрано достаточно accepted versions, выставлять `completion_status = "completed_enough"`.
-- Если accepted versions меньше, чем `output_count`, выставлять `completion_status = "completed_with_shortage"` и сохранять `shortage.requested` / `shortage.approved`.
+- `shortage` всегда существует как state object; при normal success selector выставляет `shortage.status = "enough"`.
+- Normal success означает, что `output_count` набран только из `validated_candidate_versions`, без HITL fallback.
+- Если набрано достаточно accepted versions из `validated_candidate_versions`, выставлять `completion_status = "completed_enough"` и сохранять `shortage.requested` / `shortage.approved`.
+- Если accepted versions меньше, чем `output_count`, выставлять `shortage.status = "not_enough_valid_candidates"`, сохранять `shortage.requested` / `shortage.approved` и `safe_fallback_candidates`.
+- Если shortage есть и HITL disabled, выставлять `completion_status = "completed_with_shortage"`.
+- Если shortage есть и HITL enabled, selector не создаёт `pending_interrupt` и не выставляет terminal shortage status; routing ведёт в `shortage_fallback_interrupt`.
 - `completed_with_shortage` является terminal status, но не success-equivalent к `completed_enough`; UI/API должны явно показывать shortage.
 - Safe fallback candidates нельзя включать без явной durable HITL fallback acceptance policy в `shortage.fallback_acceptance_policy`.
 
@@ -886,6 +897,11 @@ HITL fallback approved_text
 - HITL fallback approved text должен выставлять `validation_status = "hitl_fallback_accepted"`.
 - HITL fallback approved text должен сохранять `known_issues` и `why_safe`.
 - HITL fallback approved text не должен вставляться в `validated_candidate_versions`.
+- После применения `shortage.fallback_acceptance_policy` selector считает итоговый набор как union `validated_candidate_versions + accepted safe_fallback_candidates`.
+- Если применена `shortage.fallback_acceptance_policy`, selector всегда выставляет `completion_status = "completed_with_shortage_user_accepted"`, даже если union добирает `output_count`.
+- Если применена `shortage.fallback_acceptance_policy`, `shortage.status` не должен превращаться в обычный `enough`; он должен сохранить shortage outcome, например `not_enough_valid_candidates_user_accepted`.
+- После `accept_fewer` или применения `shortage.fallback_acceptance_policy` `route_after_approved_text_selector` не должен повторно вести в `shortage_fallback_interrupt` для того же shortage episode.
+- `completed_with_shortage_user_accepted` используется и для accepted fewer, и для accepted fallback; детализация хранится в `shortage.user_decision` и `shortage.fallback_acceptance_policy`.
 
 Approved text shape:
 
@@ -967,6 +983,14 @@ HITL fallback accepted variant:
 }
 ```
 
+Правила:
+
+- `shortage` всегда присутствует в `SessionState`.
+- При достаточном количестве normal approved texts из `validated_candidate_versions` selector пишет `shortage.status = "enough"`, `requested = output_count`, `approved = approved_texts.length`, `reason = null`.
+- При нехватке approved texts selector пишет `shortage.status = "not_enough_valid_candidates"` или более конкретный shortage status.
+- При HITL-accepted fallback selector сохраняет shortage status как user-accepted shortage, например `not_enough_valid_candidates_user_accepted`, и не пишет `status = "enough"`.
+- Routing не должен использовать отсутствие `shortage` как признак успеха.
+
 Форма `shortage.fallback_acceptance_policy`:
 
 ```json
@@ -991,6 +1015,13 @@ MVP может пропустить этот interrupt и завершиться
 
 `safe_fallback_candidates` существуют только для shortage path и не должны смешиваться с `approved_texts` без явного решения selector/user.
 
+Ownership:
+
+- `approved_text_selector` writes `shortage` and `safe_fallback_candidates`.
+- `approved_text_selector` does not create `pending_interrupt`.
+- `route_after_approved_text_selector` routes to `shortage_fallback_interrupt` when shortage HITL is required.
+- `shortage_fallback_interrupt` is the only node that creates shortage-related `pending_interrupt`, sets `completion_status = "waiting_user"` and calls `interrupt(payload)`.
+
 Исполнимый routing:
 
 ```text
@@ -1008,10 +1039,11 @@ shortage_fallback_interrupt
 
 Правила:
 
-- `accept_fewer` сохраняет текущие `approved_texts`, сохраняет `shortage.status` и выставляет `completion_status = "completed_with_shortage_user_accepted"`.
+- `accept_fewer` пишет `shortage.user_decision = "accept_fewer"`, сохраняет текущие `approved_texts`, сохраняет `shortage.status` и выставляет `completion_status = "completed_with_shortage_user_accepted"`.
 - `accept_safe_fallback` пишет `shortage.user_decision = "accept_safe_fallback"` и сохраняет durable `shortage.fallback_acceptance_policy`.
 - `shortage.fallback_acceptance_policy.accepted_candidate_ids` содержит явные safe fallback candidate ids, которые пользователь согласился принять.
 - Selector может включить только явно принятые safe fallback candidates и должен пометить их `validation_status = "hitl_fallback_accepted"`.
+- `shortage.fallback_acceptance_policy` является exit decision для текущего shortage episode, а не обычным дополнительным selector input.
 - HITL-accepted fallback candidates не считаются обычными `validated_candidate_versions`; они отдельно маркируются в `approved_texts` и сохраняют `known_issues` / `why_safe`.
 - Перед `retry_generation` текущий shortage snapshot добавляется в `shortage.history`.
 - `retry_generation` увеличивает `shortage.retry_attempts`, пересоздаёт active shortage state и ведёт в `candidate_text_generator`.
@@ -1033,13 +1065,18 @@ shortage_fallback_interrupt
 - `scores`;
 - `ranked_candidates`;
 - `validation_results`;
+- `refined_candidate_versions`;
 - `validated_candidate_versions`;
 - `approved_texts`;
 - `safe_fallback_candidates`;
 - active `shortage.user_decision`;
 - active `shortage.fallback_acceptance_policy`;
-- `pipeline_counters.current_rank_index`;
-- `pipeline_counters.accepted_count`;
+- `validation_loop_state.current_rank_index`;
+- `validation_loop_state.active_candidate_id`;
+- `validation_loop_state.active_version_id`;
+- `validation_loop_state.active_version_origin`;
+- `validation_loop_state.active_text_source`;
+- `validation_loop_state.accepted_count`;
 - per-candidate validation/refinement counters.
 
 ---
@@ -1092,12 +1129,29 @@ fail_stop -> END
 - `fail_clarify` создаёт/обновляет clarification payload с причиной execution lookup failure.
 - `fail_stop` выставляет `is_completed = true`, `completion_status = "failed"` и сохраняет `interpretation_state.execution_lookup_result` с issues.
 
-### 4.3 Validation loop routing
+### 4.3 Final parameter validation routing
+
+`route_after_final_parameter_validation`:
+
+```text
+pass -> preview
+fail_reclassify -> request_classification
+stop -> END
+```
+
+Правила:
+
+- Routing читает `interpretation_state.validation_result.status`.
+- `fail_reclassify` должен передать `interpretation_state.validation_result` в `request_classification`; classification учитывает причину validation failure, а не повторяет старую классификацию только по analysis/lookup hints.
+- `stop` выставляет terminal status согласно причине validation failure; если причина является hard unsupported requirement, пользовательский сценарий может завершиться без Stage 2.
+
+### 4.4 Validation loop routing
 
 `candidate_validator` routing uses:
 
 - accepted count;
-- current candidate id;
+- текущий candidate id;
+- active version id/source;
 - candidate status;
 - refinement attempts;
 - ranked queue pointer;
@@ -1114,9 +1168,9 @@ rejected -> next ranked candidate validator
 queue_exhausted -> approved_text_selector
 ```
 
-Реализация может представить "next ranked candidate validator" как обновление loop cursor в state и возврат в ту же ноду `candidate_validator`.
+Реализация может представить "next ranked candidate validator" как обновление `validation_loop_state` и возврат в ту же ноду `candidate_validator`.
 
-### 4.4 Shortage routing
+### 4.5 Shortage routing
 
 `route_after_approved_text_selector`:
 
@@ -1130,6 +1184,10 @@ shortage.status != enough and shortage_hitl_enabled = false
 shortage.status != enough and shortage_hitl_enabled = true
   -> shortage_fallback_interrupt
 ```
+
+Дополнительное правило:
+
+- Если для текущего shortage episode уже применён `shortage.user_decision = "accept_fewer"` или сохранён `shortage.fallback_acceptance_policy`, `route_after_approved_text_selector` не должен снова вести в `shortage_fallback_interrupt`; terminal status должен быть `completed_with_shortage_user_accepted`.
 
 `route_after_shortage_fallback`:
 
@@ -1177,10 +1235,12 @@ deduplication_results
 scores
 ranked_candidates
 validation_results
+refined_candidate_versions
 validated_candidate_versions
 approved_texts
 shortage
 safe_fallback_candidates
+validation_loop_state
 pipeline_counters
 trace_refs
 pending_interrupt
@@ -1203,7 +1263,7 @@ failed
 Правила:
 
 - `is_completed = true` означает, что graph достиг terminal state.
-- `completion_status = completed_enough` означает, что requested `output_count` выполнен.
+- `completion_status = completed_enough` означает, что requested `output_count` выполнен только normal approved texts из `validated_candidate_versions`.
 - `completion_status = completed_with_shortage` означает terminal shortage и должен явно отображаться UI/API.
 - `completion_status = completed_with_shortage_user_accepted` означает, что пользователь явно принял fewer/fallback results.
 - `completed_with_shortage` и `completed_with_shortage_user_accepted` не эквивалентны full success.
@@ -1319,10 +1379,28 @@ Minimum input request:
         "reason": "truth_mode=TRUTH"
       },
       {
+        "type": "utility_mode",
+        "id": "UTILITY_NARRATIVE_BASE",
+        "source": "utility_modes/NARRATIVE/BASE.md",
+        "reason": "utility_mode=NARRATIVE"
+      },
+      {
         "type": "age",
         "id": "AGE_3",
         "source": "ages/3/BASE.md",
         "reason": "target_age=3"
+      },
+      {
+        "type": "audience_language",
+        "id": "LANGUAGE_RU_AUDIENCE",
+        "source": "languages/ru/AUDIENCE.md",
+        "reason": "audience_language=ru"
+      },
+      {
+        "type": "result_language",
+        "id": "LANGUAGE_RU_RESULT",
+        "source": "languages/ru/RESULT.md",
+        "reason": "result_language=ru"
       },
       {
         "type": "entity",
@@ -1399,6 +1477,42 @@ Minimum input request:
   "body_policy": "lazy_not_persisted",
   "resolved_layers": [
     {
+      "type": "content_format",
+      "id": "CONTENT_FORMAT_STORY",
+      "source": "content_formats/story/BASE.md",
+      "reason": "content_format=story"
+    },
+    {
+      "type": "truth_mode",
+      "id": "TRUTH_BASE",
+      "source": "truth_modes/TRUTH/BASE.md",
+      "reason": "truth_mode=TRUTH"
+    },
+    {
+      "type": "utility_mode",
+      "id": "UTILITY_NARRATIVE_BASE",
+      "source": "utility_modes/NARRATIVE/BASE.md",
+      "reason": "utility_mode=NARRATIVE"
+    },
+    {
+      "type": "age",
+      "id": "AGE_3",
+      "source": "ages/3/BASE.md",
+      "reason": "target_age=3"
+    },
+    {
+      "type": "audience_language",
+      "id": "LANGUAGE_RU_AUDIENCE",
+      "source": "languages/ru/AUDIENCE.md",
+      "reason": "audience_language=ru"
+    },
+    {
+      "type": "result_language",
+      "id": "LANGUAGE_RU_RESULT",
+      "source": "languages/ru/RESULT.md",
+      "reason": "result_language=ru"
+    },
+    {
       "type": "entity",
       "id": "TRUTH_ANIMAL_HEDGEHOG",
       "source": "truth_modes/TRUTH/characters/animals/HEDGEHOG.md",
@@ -1427,53 +1541,148 @@ Minimum input request:
 
 ```json
 {
-  "candidate_text_generator": {
-    "stage": "candidate_text_generator",
-    "source_prompt_context_hash": "hash-of-session-prompt-context",
-    "stage_context_hash": "hash-of-stage-context-summary-and-refs",
-    "layer_ids": [
-      "CONTENT_FORMAT_STORY",
-      "TRUTH_BASE",
-      "AGE_3",
-      "TRUTH_ANIMAL_HEDGEHOG"
-    ],
-    "fallback_layer_ids": [],
-    "unresolved_detail_labels": [],
-    "body_policy": "lazy_not_persisted",
-    "context_summary": "Полный creative context для спокойных правдивых историй про ёжика для возраста 3.",
-    "created_at": "2026-06-02T12:10:00Z",
-    "version": 1
-  }
+  "entries": [
+    {
+      "stage": "candidate_text_generator",
+      "candidate_id": null,
+      "version_id": null,
+      "attempt": null,
+      "source_prompt_context_hash": "hash-of-session-prompt-context",
+      "stage_context_hash": "hash-of-stage-context-summary-and-refs",
+      "layer_ids": [
+        "CONTENT_FORMAT_STORY",
+        "TRUTH_BASE",
+        "UTILITY_NARRATIVE_BASE",
+        "AGE_3",
+        "LANGUAGE_RU_AUDIENCE",
+        "LANGUAGE_RU_RESULT",
+        "TRUTH_ANIMAL_HEDGEHOG"
+      ],
+      "fallback_layer_ids": [],
+      "unresolved_detail_labels": [],
+      "body_policy": "lazy_not_persisted",
+      "context_summary": "Полный creative context для спокойных правдивых историй про ёжика для возраста 3.",
+      "created_at": "2026-06-02T12:10:00Z",
+      "version": 1
+    },
+    {
+      "stage": "candidate_validator",
+      "candidate_id": "c02",
+      "version_id": "c02_v2",
+      "attempt": 2,
+      "source_prompt_context_hash": "hash-of-session-prompt-context",
+      "stage_context_hash": "hash-of-validator-context-for-c02-v2-attempt-2",
+      "layer_ids": [],
+      "fallback_layer_ids": [],
+      "unresolved_detail_labels": [],
+      "body_policy": "lazy_not_persisted",
+      "context_summary": "Validator context for c02_v2 with truth, age, utility and subject continuity constraints.",
+      "created_at": "2026-06-02T12:18:00Z",
+      "version": 1
+    }
+  ]
 }
 ```
 
 Правила:
 
-- Key — stage id.
+- `stage_prompt_context.entries[]` является canonical shape; строковые compound keys не являются контрактом.
+- Static contexts имеют `candidate_id = null`, `version_id = null`, `attempt = null`.
+- Dynamic contexts для `candidate_validator` и `candidate_refiner` должны включать `candidate_id`, `version_id` и `attempt`.
 - `source_prompt_context_hash` идентифицирует top-level `session.prompt_context` snapshot, использованный как input.
 - `stage_context_hash` идентифицирует конкретный stage context refs/summary.
 - Если `session.prompt_context.snapshot_hash` меняется, существующие stage contexts становятся invalid.
 - Full prompt bodies загружаются lazy и по умолчанию не сохраняются в `SessionState`.
 - Полный prompt text можно логировать в Langfuse или debug artifacts только согласно debug/prompt logging policy.
 - Stage nodes используют эту единую форму и не должны изобретать несовместимые per-node context formats.
+- `candidate_text_generator`, `topic_deduplicator`, `scorer`, `ranker` и `approved_text_selector` обычно используют static contexts.
+- `candidate_validator` создаёт context для каждой пары candidate/version и каждой validation attempt.
+- `candidate_refiner` создаёт context для каждой пары candidate/version и каждой refinement attempt; validator issues входят в stage context summary/hash.
 
-### 5.8 `pipeline_counters`
+### 5.8 `refined_candidate_versions`
+
+`refined_candidate_versions` хранит версии, созданные `candidate_refiner` и ожидающие повторной validation. Эти версии durable, но не считаются approved и не могут попасть в `approved_texts` без accepted validation result.
+
+Минимальная форма item:
 
 ```json
 {
-  "clarification_attempts": 0,
+  "candidate_id": "c02",
+  "version_id": "c02_v2",
+  "source_candidate_id": "c02",
+  "source_version_id": "c02_v1",
+  "version_origin": "refined",
+  "theme": "ёжик ищет сухие листья",
+  "text": "Исправленный текст...",
+  "questions": ["Что ёжик искал?"],
+  "changes_summary": "Убрана человеческая речь, сохранена тема.",
+  "created_by_node": "candidate_refiner",
+  "created_at": "2026-06-02T12:17:00Z",
+  "trace_refs": {}
+}
+```
+
+Правила:
+
+- `theme`, `main_subject`, required subjects и `character_profile` должны совпадать с исходным candidate.
+- `candidate_refiner` пишет сюда revised version перед возвратом в `candidate_validator`.
+- `candidate_validator` читает revised text отсюда только когда `validation_loop_state.active_text_source = "refined_candidate_versions"`.
+- Accepted item всё равно создаётся отдельно в `validated_candidate_versions`.
+
+### 5.9 `validation_loop_state`
+
+`validation_loop_state` хранит durable cursor validation/refinement loop. Это canonical source для текущего rank index, active candidate/version и accepted count.
+
+Минимальная форма:
+
+```json
+{
+  "current_rank_index": 0,
+  "active_candidate_id": "c02",
+  "active_version_id": "c02_v2",
+  "active_version_origin": "refined",
+  "active_text_source": "refined_candidate_versions",
+  "accepted_count": 1
+}
+```
+
+Правила:
+
+- `current_rank_index` указывает на позицию в `ranked_candidates`.
+- `active_candidate_id` должен совпадать с candidate id на текущей позиции ranked queue.
+- `active_version_id` определяет конкретную версию, которую validator должен проверить.
+- `active_version_origin` принимает `draft` или `refined`.
+- `active_text_source` принимает `candidate_texts` или `refined_candidate_versions`.
+- При первом входе кандидата в validation loop оркестратор создаёт canonical draft version id по шаблону `{candidate_id}_v1`, например `c02_v1`.
+- Для initial draft version `active_version_id = "{candidate_id}_v1"`, `active_version_origin = "draft"` и `active_text_source = "candidate_texts"`.
+- `candidate_texts` не обязаны хранить `version_id`; draft version id является loop-level identity, а не частью generator output contract.
+- Все следующие revised versions используют монотонную нумерацию `{candidate_id}_v2`, `{candidate_id}_v3` и хранятся в `refined_candidate_versions`.
+- Validator читает active text через `active_text_source`, а не выбирает произвольный latest text по `candidate_id`.
+- После успешного refiner output graph сохраняет revised version в `refined_candidate_versions` и обновляет active version fields перед возвратом в validator.
+- `accepted_count` считает только normal accepted versions в `validated_candidate_versions`.
+- HITL fallback count для shortage считается отдельно как union `validated_candidate_versions + accepted safe_fallback_candidates`.
+- При переходе к следующему ranked candidate graph обновляет `current_rank_index`, `active_candidate_id`, `active_version_id = "{candidate_id}_v1"`, `active_version_origin = "draft"` и `active_text_source = "candidate_texts"`.
+
+### 5.10 `pipeline_counters`
+
+```json
+{
   "candidate_attempts": {
     "c01": {
       "validation_attempts": 1,
       "refinement_attempts": 0
     }
-  },
-  "current_rank_index": 0,
-  "accepted_count": 0
+  }
 }
 ```
 
-### 5.9 `pending_interrupt`
+Rules:
+
+- Canonical clarification counter lives in `interpretation_state.clarification_attempts`.
+- `pipeline_counters` must not duplicate clarification attempt state.
+- Validation loop cursor и accepted count живут в `validation_loop_state`, а не в `pipeline_counters`.
+
+### 5.11 `pending_interrupt`
 
 `pending_interrupt` — durable state для восстановления HITL после restart процесса. Он хранится в `SessionState` / `JSONStorage`, а не в `MemorySaver`.
 
@@ -1589,6 +1798,7 @@ Optional metadata:
 - `fallback_priority`;
 - `requires_user_confirmation`;
 - `sample_text`;
+- `example_result_ids`;
 - `safety_notes`.
 
 ### 6.2 PromptRegistry
@@ -1617,8 +1827,9 @@ Used before preview.
 
 Purpose:
 
-- understand available modes/styles/substyles/entities;
+- understand available modes, utility modes/topics, audience/result languages, styles/substyles and entities;
 - avoid promising unsupported stylization;
+- find teaching-topic and language layer candidates before preview;
 - identify fallback candidates;
 - decide whether user clarification is needed.
 
@@ -1632,6 +1843,12 @@ Output:
 
 ```json
 {
+  "status": "pass",
+  "failure_type": null,
+  "failed_layer_id": null,
+  "failed_source": null,
+  "issues": [],
+  "route_reason": null,
   "resolved_layers": [],
   "fallback_layers": [],
   "unresolved_details": []
@@ -1642,6 +1859,9 @@ Execution lookup/preparation materializes and verifies the already resolved `nor
 
 Rules:
 
+- It returns a status envelope compatible with `interpretation_state.execution_lookup_result`.
+- `status` must be one of `pass`, `fail_reresolve`, `fail_clarify`, `fail_stop`.
+- `resolved_layers`, `fallback_layers` and `unresolved_details` are payload fields, not a replacement for verification status.
 - It may add source refs, hashes, `frozen_at`, version and runtime metadata.
 - It must not choose different layer ids.
 - It must not choose different fallback layers.
@@ -1666,15 +1886,25 @@ General layer priority:
 1. content format;
 2. truth mode;
 3. utility mode;
-4. target age;
-5. result language;
-6. style/substyle;
-7. entity/subject;
-8. hard details;
-9. soft preferences;
-10. unresolved details;
-11. stage-specific instructions;
-12. output contract.
+4. utility topic layer, when `utility_mode = TEACHING` or another mode has a concrete utility goal;
+5. target age;
+6. audience language;
+7. result language;
+8. style/substyle;
+9. entity/subject;
+10. hard details;
+11. soft preferences;
+12. unresolved details;
+13. stage-specific instructions;
+14. output contract.
+
+Правила:
+
+- `utility mode` отвечает за общий тип пользы (`NARRATIVE`, `TEACHING` и т.д.).
+- `utility_topic_layer` отвечает за конкретную обучающую/прикладную тему, например stranger/candy safety, hygiene, road crossing.
+- `audience_language` задаёт язык понимания пользователя/ребёнка и может влиять на age wording, vocabulary и clarification phrasing.
+- `result_language` задаёт язык итоговых текстов.
+- Если `audience_language` и `result_language` совпадают, PromptComposer всё равно сохраняет обе layer decisions или явную ссылку на общий language layer, чтобы lookup trace был однозначным.
 
 Stage context profiles:
 
@@ -1894,6 +2124,8 @@ At minimum, implementation must pass scenarios for:
 - мифологическая мягкая история про солнце или ветер;
 - поучительная история про мытьё рук;
 - поучительная сказка про переход через дорогу;
+- поучительная история про незнакомца и конфету;
+- провокационный safety case про незнакомца/конфету, где teaching goal не должен превращаться в небезопасный совет;
 - fallback `PARROT` for `какаду` with unresolved detail;
 - multiple subjects with explicit `subject_continuity_policy`;
 - character request with `character_profile`;
@@ -1903,6 +2135,8 @@ At minimum, implementation must pass scenarios for:
 - refiner must not change theme/main subject/character profile;
 - selector must use validated candidate versions;
 - accepted draft создаёт item в `validated_candidate_versions` даже без refinement;
+- validator/refiner uses `validation_loop_state`, чтобы revised versions проверялись вместо stale drafts;
+- validator/refiner stage prompt contexts являются dynamic per candidate/version/attempt;
 - execution lookup missing source ведёт в reresolve/clarify/stop и не делает silent layer swap;
 - interrupt restart сохраняет `completion_status = waiting_user` и `pending_interrupt`;
 - recovered interrupt resume не увеличивает clarification attempts дважды;
@@ -1922,19 +2156,27 @@ The orchestrator implementation is complete when:
 - all clarification branches route back to analysis/classification;
 - `normalized_request` is separate from process metadata;
 - `PromptRegistry` validates metadata and stable ids;
+- metadata lookup returns utility mode/topic and audience/result language candidates when applicable;
 - `PromptComposer` creates stage-specific contexts;
+- `PromptComposer` includes utility mode, utility topic when applicable, audience language and result language layers;
 - Stage 2 generates candidate pool with default count 20;
 - duplicate themes are filtered or marked;
 - hard gates can exclude candidates before approval;
 - validation/refinement loop respects per-candidate counters;
+- validation/refinement loop uses `validation_loop_state` для active candidate/version/source;
+- `candidate_validator` validates revised versions from `refined_candidate_versions` after refiner output;
 - refiner preserves immutable fields;
 - selector читает normal approved text content из `validated_candidate_versions`, а не из `candidate_texts` или `ranked_candidates`;
 - selector может включить HITL fallback только из `safe_fallback_candidates` плюс explicit `shortage.fallback_acceptance_policy`;
+- selector не превращает HITL fallback union в `completed_enough` или `shortage.status = "enough"`;
+- selector не возвращает пользователя в shortage interrupt повторно после `accept_fewer` или durable `shortage.fallback_acceptance_policy`;
 - accepted draft создаёт объект `validated_candidate_versions`;
 - execution lookup failure никогда не делает silent prompt layer swap;
 - interrupt nodes сохраняют `completion_status = waiting_user` и `pending_interrupt`;
 - final output is `approved_texts`;
+- selector always writes `shortage`, including `shortage.status = "enough"` on successful full output;
 - shortage is explicit when output count is not met;
+- execution lookup returns status envelope and never behaves as a plain layer-list lookup;
 - no image/animation node is part of current graph;
 - JSONStorage can restore meaningful progress;
 - Langfuse traces contain enough debug refs to inspect approved text decisions.
