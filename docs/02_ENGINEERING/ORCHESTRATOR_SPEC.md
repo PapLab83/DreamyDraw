@@ -217,7 +217,8 @@ candidate_text_generator
   -> ranker
   -> candidate_validator
       accepted
-        -> approved_text_selector? / next candidate
+        -> approved_text_selector if accepted_count >= output_count
+        -> next candidate if accepted_count < output_count
       needs_revision
         -> candidate_refiner
         -> candidate_validator
@@ -389,6 +390,7 @@ Type: deterministic/LLM-assisted.
 Purpose:
 
 - convert lookup candidates into final executable layer decisions;
+- apply lookup-derived normalized field resolutions;
 - select exact layers where available;
 - select fallback layers where acceptable;
 - store unresolved details as freeform context;
@@ -396,6 +398,7 @@ Purpose:
 
 Outputs:
 
+- lookup-derived normalized field updates such as `utility_topic`, `subjects[].resolved_layer_id`, supported `substyle` and similar resolved fields;
 - `normalized_request.prompt_context`;
 - `interpretation_state.layer_resolution_summary`.
 
@@ -405,6 +408,11 @@ Rules:
 - File path is stored separately in `source`.
 - Fallback decisions include `requested`, `fallback_layer_id`, `source`, `reason`.
 - Hard unsupported requirements must route back to clarification or stop.
+- `candidate_layer_resolution` is the only Stage 1 node that may apply `interpretation_state.lookup_hints` into lookup-derived `normalized_request` fields.
+- `metadata_lookup` must not mutate `normalized_request`; it only writes hints.
+- Lookup-derived normalized field updates must not silently change user intent. If applying a hint changes meaning, conflicts with classification, or requires user choice, route to `request_classification` / `clarification_interrupt`.
+- Examples of lookup-derived fields owned here: `utility_topic`, `subjects[].resolved_layer_id`, `substyle`, supported style/entity layer ids and unresolved detail placement.
+- When `utility_mode = TEACHING` and a supported teaching topic is resolved, this node writes `normalized_request.utility_topic` and the matching `type = "utility"`, `role = "utility_topic"` layer in `normalized_request.prompt_context.resolved_layers`.
 - `normalized_request.prompt_context` — canonical interpretation result: только resolved/fallback/unresolved decisions.
 - `normalized_request.prompt_context` не является runtime/debug object и не должен содержать `frozen_at`, trace refs, execution hashes, prompt body policy или Langfuse metadata.
 
@@ -680,6 +688,15 @@ Output:
   ]
 }
 ```
+
+Rules:
+
+- `ranker` is the owner of primary `validation_loop_state` initialization.
+- After writing `ranked_candidates`, `ranker` initializes `validation_loop_state` idempotently if `stage_status.validation_loop.status = "not_started"`.
+- Initial cursor points to the first ranked candidate that can enter validation.
+- Initial draft version id is `{candidate_id}_v1`, for example `c01_v1`.
+- Initial `active_version_origin = "draft"` and `active_text_source = "candidate_texts"`.
+- If recovery re-enters after ranker completed, `ranker` must not overwrite a non-empty/running `validation_loop_state`.
 
 #### `candidate_validator`
 
@@ -1058,7 +1075,7 @@ shortage_fallback_interrupt
 - `interpretation_state`;
 - `preview_state`;
 - `prompt_context`;
-- базовые refs из `stage_prompt_context`;
+- reusable static refs из `stage_prompt_context` только если `source_prompt_context_hash` совпадает с текущим `prompt_context.snapshot_hash`;
 - `shortage.history`.
 
 При `retry_generation` очищаются или пересоздаются:
@@ -1074,12 +1091,18 @@ shortage_fallback_interrupt
 - `safe_fallback_candidates`;
 - active `shortage.user_decision`;
 - active `shortage.fallback_acceptance_policy`;
+- dynamic Stage 2 `stage_prompt_context.entries` where `candidate_id`, `version_id` or `attempt` is not null;
+- static Stage 2 `stage_prompt_context.entries` with stale `source_prompt_context_hash`;
 - `validation_loop_state.current_rank_index`;
 - `validation_loop_state.active_candidate_id`;
 - `validation_loop_state.active_version_id`;
 - `validation_loop_state.active_version_origin`;
 - `validation_loop_state.active_text_source`;
 - `validation_loop_state.accepted_count`;
+- all Stage 2 `stage_status` entries back to `not_started`;
+- Stage 2 `stage_status.*.completed_at`;
+- Stage 2 `stage_status.*.input_hash`;
+- Stage 2 `stage_status.*.output_hash`;
 - per-candidate validation/refinement counters.
 
 ---
@@ -1665,6 +1688,8 @@ Minimum input request:
 - `source_prompt_context_hash` идентифицирует top-level `session.prompt_context` snapshot, использованный как input.
 - `stage_context_hash` идентифицирует конкретный stage context refs/summary.
 - Если `session.prompt_context.snapshot_hash` меняется, существующие stage contexts становятся invalid.
+- При `retry_generation` все dynamic Stage 2 entries удаляются; static entries можно сохранить только при совпадении `source_prompt_context_hash` с текущим `prompt_context.snapshot_hash`.
+- Если есть сомнение в валидности stage context после retry, Stage 2 nodes должны пересоздать нужный entry через `PromptComposer`.
 - Full prompt bodies загружаются lazy и по умолчанию не сохраняются в `SessionState`.
 - Полный prompt text можно логировать в Langfuse или debug artifacts только согласно debug/prompt logging policy.
 - Stage nodes используют эту единую форму и не должны изобретать несовместимые per-node context formats.
@@ -1726,7 +1751,7 @@ Minimum input request:
 - `active_version_id` определяет конкретную версию, которую validator должен проверить.
 - `active_version_origin` принимает `draft` или `refined`.
 - `active_text_source` принимает `candidate_texts` или `refined_candidate_versions`.
-- При первом входе кандидата в validation loop оркестратор создаёт canonical draft version id по шаблону `{candidate_id}_v1`, например `c02_v1`.
+- `ranker` создаёт первый canonical draft version id по шаблону `{candidate_id}_v1`, например `c02_v1`, при первичной инициализации `validation_loop_state`.
 - Для initial draft version `active_version_id = "{candidate_id}_v1"`, `active_version_origin = "draft"` и `active_text_source = "candidate_texts"`.
 - `candidate_texts` не обязаны хранить `version_id`; draft version id является loop-level identity, а не частью generator output contract.
 - Все следующие revised versions используют монотонную нумерацию `{candidate_id}_v2`, `{candidate_id}_v3` и хранятся в `refined_candidate_versions`.
@@ -1734,7 +1759,7 @@ Minimum input request:
 - После успешного refiner output graph сохраняет revised version в `refined_candidate_versions` и обновляет active version fields перед возвратом в validator.
 - `accepted_count` считает только normal accepted versions в `validated_candidate_versions`.
 - HITL fallback count для shortage считается отдельно как union `validated_candidate_versions + accepted safe_fallback_candidates`.
-- При переходе к следующему ranked candidate graph обновляет `current_rank_index`, `active_candidate_id`, `active_version_id = "{candidate_id}_v1"`, `active_version_origin = "draft"` и `active_text_source = "candidate_texts"`.
+- При переходе к следующему ranked candidate routing transition обновляет `current_rank_index`, `active_candidate_id`, создаёт `active_version_id = "{candidate_id}_v1"`, выставляет `active_version_origin = "draft"` и `active_text_source = "candidate_texts"`.
 
 ### 5.11 `pipeline_counters`
 
@@ -2059,6 +2084,14 @@ After resume: route to `input_analysis`.
 
 Optional in MVP.
 
+Default policy:
+
+```text
+shortage_hitl_enabled = false
+```
+
+Если policy не переопределена явно, MVP завершает pipeline с `completion_status = "completed_with_shortage"` и не создаёт shortage HITL interrupt.
+
 Used when:
 
 ```text
@@ -2118,8 +2151,17 @@ completion_status in completed_enough|completed_with_shortage|completed_with_sho
 pending_interrupt.status = waiting
   -> pending_interrupt.node
 
-prompt_context missing/invalid and normalized_request exists
-  -> candidate_layer_resolution or prompt_context_preparation, depending on validation state
+interpretation_state.validation_result.status != pass
+  -> input_analysis or metadata_lookup or request_classification according to persisted Stage 1 state
+
+interpretation_state.validation_result.status = pass
+  and normalized_request.prompt_context missing/invalid
+  -> candidate_layer_resolution
+
+interpretation_state.validation_result.status = pass
+  and normalized_request.prompt_context resolved
+  and prompt_context missing/invalid
+  -> prompt_context_preparation
 
 prompt_context valid and stage_status.candidate_text_generator.status = not_started
   -> candidate_text_generator
@@ -2147,7 +2189,8 @@ stage_status.validation_loop.status = completed
 shortage.status != enough and shortage_hitl_enabled = true and shortage.user_decision is null
   -> shortage_fallback_interrupt
 
-shortage.status != enough and shortage.user_decision or shortage.fallback_acceptance_policy exists
+shortage.status != enough
+  and (shortage.user_decision exists or shortage.fallback_acceptance_policy exists)
   -> approved_text_selector or END according to shortage routing
 ```
 
@@ -2156,6 +2199,9 @@ shortage.status != enough and shortage.user_decision or shortage.fallback_accept
 - `entry_point_from_session` должен использовать persisted business state, а не только `current_node`.
 - Recovery route выбирается по `stage_status`, `completion_status`, `pending_interrupt`, `validation_loop_state` и snapshot hashes.
 - Top-level result fields (`candidate_texts`, `scores`, `ranked_candidates`, `approved_texts` и т.д.) могут быть пустыми валидными результатами; `exists/missing` не является достаточным recovery signal.
+- Stage 1 recovery must not jump into `candidate_layer_resolution` or `prompt_context_preparation` from a partial draft `normalized_request`.
+- Если `interpretation_state.validation_result.status != "pass"` или classification не complete, recovery возвращается в Stage 1 analysis/classification path.
+- `prompt_context_preparation` is reachable on recovery only after final parameter validation has passed and `normalized_request.prompt_context` is resolved.
 - Recovery не должен повторять Stage 1 или candidate generation, если durable downstream state уже существует и hash/snapshot checks валидны.
 - Если recovered state противоречивый или snapshot hashes invalid, graph routes to the earliest safe verification node, usually `prompt_context_preparation`.
 - During validation recovery, `validation_loop_state` is the source of active candidate/version/source.
@@ -2291,6 +2337,7 @@ The orchestrator implementation is complete when:
 - `PromptRegistry` validates metadata and stable ids;
 - resolved layer `type` uses `PROMPT_FILE_CONTRACT.md` enum and orchestration-specific meaning is stored in `role`;
 - metadata lookup returns utility mode/topic and audience/result language candidates when applicable;
+- `candidate_layer_resolution` is the owner for applying lookup-derived normalized field updates;
 - `PromptComposer` creates stage-specific contexts;
 - `PromptComposer` includes utility mode, utility topic when applicable, audience language and result language layers;
 - teaching topics are represented in `normalized_request.utility_topic` and resolved prompt layers when registry match exists;
@@ -2298,6 +2345,7 @@ The orchestrator implementation is complete when:
 - duplicate themes are filtered or marked;
 - hard gates can exclude candidates before approval;
 - validation/refinement loop respects per-candidate counters;
+- `ranker` initializes `validation_loop_state` idempotently before first validator entry;
 - validation/refinement loop uses `validation_loop_state` для active candidate/version/source;
 - `candidate_validator` validates revised versions from `refined_candidate_versions` after refiner output;
 - refiner preserves immutable fields;
@@ -2315,5 +2363,8 @@ The orchestrator implementation is complete when:
 - execution lookup returns status envelope and never behaves as a plain layer-list lookup;
 - no image/animation node is part of current graph;
 - `stage_status` distinguishes not started, completed-empty result and failed stages for recovery;
+- `retry_generation` resets Stage 2 `stage_status` entries, hashes and timestamps;
+- `retry_generation` removes dynamic Stage 2 `stage_prompt_context.entries` and invalid stale static entries;
+- Stage 1 recovery does not proceed to prompt context preparation until final parameter validation has passed;
 - JSONStorage can restore meaningful progress, including non-interrupt Stage 2 progress without restarting from Stage 1;
 - Langfuse traces contain enough debug refs to inspect approved text decisions.
