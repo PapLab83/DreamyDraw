@@ -135,6 +135,26 @@ class GraphState(TypedDict, total=False):
 - Ноды возвращают обновлённый `{"session": session}`.
 - `current_node` — маркер прогресса/debug, а не imperative router.
 
+Resume input contract:
+
+```json
+{
+  "interrupt_type": "request_clarification",
+  "selected_option_id": "opt_1",
+  "freeform_text": null,
+  "action": null,
+  "accepted_candidate_ids": null,
+  "known_issues_acknowledged": null
+}
+```
+
+Rules:
+
+- Allowed `interrupt_type` values: `request_clarification`, `shortage_fallback`.
+- `user_input` is transient and is cleared after the relevant interrupt node handles it.
+- There is no canonical top-level `session.user_feedback` field in the new orchestration contract.
+- If durable history of user choices is needed, it must be written explicitly into a process/history field owned by the interrupt node, not inferred from `GraphState`.
+
 ---
 
 ## 3. Target LangGraph
@@ -217,8 +237,8 @@ candidate_text_generator
   -> ranker
   -> candidate_validator
       accepted
-        -> approved_text_selector if accepted_count >= output_count
-        -> next candidate if accepted_count < output_count
+        -> approved_text_selector if selector_eligible_unique_accepted_count >= output_count
+        -> next candidate if selector_eligible_unique_accepted_count < output_count
       needs_revision
         -> candidate_refiner
         -> candidate_validator
@@ -254,7 +274,7 @@ Purpose:
 Inputs:
 
 - `session.request.raw_text` or equivalent initial input;
-- `session.user_feedback` / resume payload if present;
+- normalized transient resume payload from `GraphState.user_input` if present;
 - `current_config`;
 - `user_context`;
 - prompt metadata summaries if available from prior iteration.
@@ -360,7 +380,7 @@ Payload shape:
   ],
   "freeform_allowed": true,
   "attempt": 1,
-  "max_attempts": 3
+  "max_attempts": 5
 }
 ```
 
@@ -368,6 +388,7 @@ Resume value:
 
 ```json
 {
+  "interrupt_type": "request_clarification",
   "selected_option_id": "opt_1",
   "freeform_text": null
 }
@@ -382,6 +403,10 @@ Resume value:
 - При создании `pending_interrupt` выставлять `is_completed = false`, `completion_status = "waiting_user"`, `current_node = "clarification_interrupt"`.
 - После resume вести граф в `input_analysis`, а не в validation.
 - Выбранный option является input для re-analysis, а не final patch, который применяется вслепую.
+- `max_clarification_attempts = 5` by default.
+- Clarification attempts apply to the whole clarification contour: incomplete, ambiguous, empty/meaningless, contradictory and unsupported-hard-requirement cases.
+- Each clarification option must represent a complete-enough interpretation candidate for all currently known missing/ambiguous base fields. It may be encoded as `normalized_patch`, but it must not intentionally leave base fields unresolved if the option text claims to be executable.
+- Raw UI/LangGraph resume payload may be shorter, but CLI/API or the interrupt node must normalize it into `GraphState.user_input` before re-analysis.
 
 #### `candidate_layer_resolution`
 
@@ -756,11 +781,15 @@ Rules:
 - Validator читает текущий текст через `validation_loop_state.active_candidate_id`, `active_version_id` и `active_text_source`.
 - Для draft version `active_text_source = "candidate_texts"`, для версии после refiner — `active_text_source = "refined_candidate_versions"`.
 - Validator не должен выбирать текст только по `candidate_id`, если `validation_loop_state.active_version_id` указывает на revised version.
-- Останавливать validation loop, когда accepted count в `validation_loop_state` достигает `output_count`.
+- Останавливать validation loop, когда `validation_loop_state.selector_eligible_unique_accepted_count` достигает `output_count`, или когда ranked queue исчерпана.
 - Увеличивать validation attempt counter per candidate.
 - Если status = `accepted`, записывать принятую версию кандидата в `validated_candidate_versions`.
 - `validation_results` хранит историю попыток; `validated_candidate_versions` хранит версии кандидатов, пригодные для финального выбора.
 - Если validator принимает исходный draft без refiner, всё равно создаётся version object, например `c01_v1`, в `validated_candidate_versions`.
+- `accepted_count` остаётся metric/debug counter и не является достаточным stop condition, потому что selector обязан исключать duplicate themes.
+- `selector_eligible_unique_accepted_count` считает accepted versions, которые могут быть выбраны selector после duplicate-theme exclusion и critical gate exclusion.
+- When validator returns `accepted`, the validator node or the immediate routing transition must atomically update `validated_candidate_versions`, `validation_loop_state.accepted_count` and `validation_loop_state.selector_eligible_unique_accepted_count`.
+- `selector_eligible_unique_accepted_count` must be recomputed or updated from accepted validated versions, `deduplication_results`, accepted themes and critical gate status.
 
 Форма `validated_candidate_versions`:
 
@@ -1108,6 +1137,7 @@ shortage_fallback_interrupt
 - `validation_loop_state.active_version_origin`;
 - `validation_loop_state.active_text_source`;
 - `validation_loop_state.accepted_count`;
+- `validation_loop_state.selector_eligible_unique_accepted_count`;
 - all Stage 2 `stage_status` entries back to `not_started`;
 - Stage 2 `stage_status.*.completed_at`;
 - Stage 2 `stage_status.*.input_hash`;
@@ -1185,6 +1215,7 @@ stop -> END
 `candidate_validator` routing uses:
 
 - accepted count;
+- selector-eligible unique accepted count;
 - текущий candidate id;
 - active version id/source;
 - candidate status;
@@ -1195,8 +1226,8 @@ stop -> END
 Routing:
 
 ```text
-accepted and accepted_count >= output_count -> approved_text_selector
-accepted and accepted_count < output_count -> next ranked candidate validator
+accepted and selector_eligible_unique_accepted_count >= output_count -> approved_text_selector
+accepted and selector_eligible_unique_accepted_count < output_count -> next ranked candidate validator
 needs_revision and attempts_left -> candidate_refiner
 needs_revision and no_attempts_left -> next ranked candidate validator
 rejected -> next ranked candidate validator
@@ -1525,18 +1556,18 @@ Minimum input request:
 ```json
 {
   "confidence": {
-    "content_format": 0.9,
-    "truth_mode": 0.85,
-    "utility_mode": 0.8,
-    "target_age": 0.95,
-    "main_subject": 0.95
+    "content_format": 90,
+    "truth_mode": 85,
+    "utility_mode": 80,
+    "target_age": 95,
+    "main_subject": 95
   },
   "classification": "complete",
   "requires_clarification": false,
   "clarification_reason": null,
   "clarification_options": [],
   "clarification_attempts": 0,
-  "max_clarification_attempts": 3,
+  "max_clarification_attempts": 5,
   "lookup_hints": {},
   "validation_result": {
     "status": "pass",
@@ -1552,6 +1583,12 @@ Minimum input request:
   }
 }
 ```
+
+Rules:
+
+- Confidence values use the canonical `0..100` scale.
+- Routing thresholds must not treat confidence as `0..1` floats.
+- `max_clarification_attempts = 5` applies to the whole clarification contour, not to a single branch.
 
 ### 5.6 `preview_state`
 
@@ -1738,7 +1775,7 @@ Minimum input request:
 
 ### 5.10 `validation_loop_state`
 
-`validation_loop_state` хранит durable cursor validation/refinement loop. Это canonical source для текущего rank index, active candidate/version и accepted count.
+`validation_loop_state` хранит durable cursor validation/refinement loop. Это canonical source для текущего rank index, active candidate/version, accepted count и selector-eligible accepted count.
 
 Минимальная форма:
 
@@ -1749,7 +1786,8 @@ Minimum input request:
   "active_version_id": "c02_v2",
   "active_version_origin": "refined",
   "active_text_source": "refined_candidate_versions",
-  "accepted_count": 1
+  "accepted_count": 1,
+  "selector_eligible_unique_accepted_count": 1
 }
 ```
 
@@ -1767,6 +1805,8 @@ Minimum input request:
 - Validator читает active text через `active_text_source`, а не выбирает произвольный latest text по `candidate_id`.
 - После успешного refiner output graph сохраняет revised version в `refined_candidate_versions` и обновляет active version fields перед возвратом в validator.
 - `accepted_count` считает только normal accepted versions в `validated_candidate_versions`.
+- `selector_eligible_unique_accepted_count` считает только normal accepted versions, которые selector сможет использовать после duplicate-theme exclusion и critical gate exclusion.
+- Validation loop stop condition uses `selector_eligible_unique_accepted_count >= normalized_request.output_count`, not raw `accepted_count`.
 - HITL fallback count для shortage считается отдельно как union `validated_candidate_versions + accepted safe_fallback_candidates`.
 - При переходе к следующему ranked candidate routing transition обновляет `current_rank_index`, `active_candidate_id`, создаёт `active_version_id = "{candidate_id}_v1"`, выставляет `active_version_origin = "draft"` и `active_text_source = "candidate_texts"`.
 
@@ -1787,7 +1827,7 @@ Rules:
 
 - Canonical clarification counter lives in `interpretation_state.clarification_attempts`.
 - `pipeline_counters` must not duplicate clarification attempt state.
-- Validation loop cursor и accepted count живут в `validation_loop_state`, а не в `pipeline_counters`.
+- Validation loop cursor, accepted count и selector-eligible accepted count живут в `validation_loop_state`, а не в `pipeline_counters`.
 
 ### 5.12 `pending_interrupt`
 
@@ -1923,12 +1963,20 @@ Responsibilities:
 
 - scan prompt directories;
 - parse YAML metadata;
+- provide prompt body loading by layer id/source when requested by `PromptComposer`;
 - validate required fields;
 - validate unique `id`;
 - store layer index by id/type/alias/applicability;
 - return metadata lookup candidates;
 - return execution lookup results;
-- cache parsed metadata by file hash or mtime.
+- cache parsed metadata by file hash or mtime;
+- compute and expose metadata/body hashes for execution snapshots and prompt traces.
+
+Boundary:
+
+- `PromptRegistry` owns prompt file parsing, metadata indexing and low-level body retrieval.
+- `PromptRegistry` does not decide stage composition and does not build per-stage prompt contexts.
+- Stage nodes must not read prompt `.md` files directly; they receive stage context through `PromptComposer`.
 
 Lookup levels:
 
@@ -1991,11 +2039,20 @@ Rules:
 Responsibilities:
 
 - build stage-specific prompt context;
-- lazy-load prompt bodies when needed;
+- lazy-load prompt bodies through `PromptRegistry` or a dedicated `PromptBodyStore` when needed;
 - preserve layer ordering;
 - include hard constraints before soft preferences;
 - include unresolved details as freeform context, not guaranteed layer knowledge;
 - generate compact debug summaries and hashes.
+
+Boundary:
+
+- `PromptComposer` owns stage context assembly.
+- When a stage requires full prompt body text, `PromptComposer` requests bodies by layer id/source, computes body/context hashes and returns a runtime context object to the node.
+- If a dedicated `PromptBodyStore` exists, it is an internal dependency/adapter used by `PromptRegistry` and/or `PromptComposer`.
+- `SessionState.stage_prompt_context` stores ids, hashes, summaries and refs by default, not full prompt bodies.
+- Full prompt text may be sent to LLM calls and Langfuse/debug artifacts only according to prompt logging policy.
+- Stage nodes must not assemble prompt layers ad hoc or bypass `PromptComposer`.
 
 General layer priority:
 
