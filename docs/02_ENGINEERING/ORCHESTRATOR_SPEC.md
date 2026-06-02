@@ -46,7 +46,7 @@
 - stage-specific prompt context;
 - text candidate pipeline;
 - validation/refinement loop;
-- shortage/fallback branch;
+- shortage detection and fallback state;
 - JSONStorage persistence;
 - Langfuse observability;
 - migration-ready implementation constraints.
@@ -658,6 +658,7 @@ Rules:
 - Schema remains multi-component for future split agents.
 - `utility_goal` является critical hard gate для `utility_mode = TEACHING`.
 - Для `utility_mode = NARRATIVE` utility fit может оставаться score component, если нет конкретной hard utility goal.
+- `visual_potential` is a text-only heuristic based on theme clarity and illustration readiness; it must not call image generation, image prompt execution, visual validation or any Stage 3 pipeline.
 
 #### `ranker`
 
@@ -1034,6 +1035,14 @@ MVP может пропустить этот interrupt и завершиться
 - остановиться.
 
 `safe_fallback_candidates` существуют только для shortage path и не должны смешиваться с `approved_texts` без явного решения selector/user.
+
+Default MVP shortage behavior:
+
+- shortage detection is mandatory;
+- `approved_text_selector` always writes a durable `shortage` object;
+- if normal approved texts are fewer than `output_count`, selector writes `completion_status = "completed_with_shortage"`;
+- selector may prepare `safe_fallback_candidates` for diagnostics or future HITL;
+- interactive shortage HITL/retry is available only when `shortage_hitl_enabled = true`.
 
 Ownership:
 
@@ -2082,7 +2091,7 @@ After resume: route to `input_analysis`.
 
 ### 7.5 Shortage fallback
 
-Optional in MVP.
+Interactive shortage fallback is optional in MVP. Shortage detection and durable shortage state are mandatory.
 
 Default policy:
 
@@ -2091,6 +2100,15 @@ shortage_hitl_enabled = false
 ```
 
 Если policy не переопределена явно, MVP завершает pipeline с `completion_status = "completed_with_shortage"` и не создаёт shortage HITL interrupt.
+
+Default MVP shortage behavior:
+
+- detect shortage when approved text count is lower than requested output count;
+- write `shortage.requested`, `shortage.approved`, `shortage.status` and `shortage.reason`;
+- write `safe_fallback_candidates` when safe non-approved candidates exist;
+- finish with `completion_status = "completed_with_shortage"`;
+- do not create `pending_interrupt`;
+- do not retry generation automatically.
 
 Used when:
 
@@ -2203,7 +2221,12 @@ shortage.status != enough
 - Если `interpretation_state.validation_result.status != "pass"` или classification не complete, recovery возвращается в Stage 1 analysis/classification path.
 - `prompt_context_preparation` is reachable on recovery only after final parameter validation has passed and `normalized_request.prompt_context` is resolved.
 - Recovery не должен повторять Stage 1 или candidate generation, если durable downstream state уже существует и hash/snapshot checks валидны.
-- Если recovered state противоречивый или snapshot hashes invalid, graph routes to the earliest safe verification node, usually `prompt_context_preparation`.
+- Если recovered state противоречивый или snapshot hashes invalid, graph routes to the earliest safe verification node:
+  - final validation not passed or classification not complete -> `input_analysis` / `request_classification` path;
+  - `normalized_request.prompt_context` missing or invalid -> `candidate_layer_resolution`;
+  - `normalized_request.prompt_context` valid but top-level `session.prompt_context` missing, stale or invalid -> `prompt_context_preparation`;
+  - Stage 2 snapshot/hash invalid -> earliest affected Stage 2 node;
+  - validation loop partial -> `candidate_validator` using `validation_loop_state`.
 - During validation recovery, `validation_loop_state` is the source of active candidate/version/source.
 
 Persistent LangGraph checkpointer can be introduced later, but is not required for Stage 1-2 MVP.
@@ -2350,8 +2373,9 @@ The orchestrator implementation is complete when:
 - `candidate_validator` validates revised versions from `refined_candidate_versions` after refiner output;
 - refiner preserves immutable fields;
 - selector читает normal approved text content из `validated_candidate_versions`, а не из `candidate_texts` или `ranked_candidates`;
-- selector может включить HITL fallback только из `safe_fallback_candidates` плюс explicit `shortage.fallback_acceptance_policy`;
-- shortage fallback resume payload includes accepted safe fallback ids and known-issues acknowledgement when applicable;
+- selector may prepare `safe_fallback_candidates` when shortage occurs;
+- selector может включить HITL fallback только из `safe_fallback_candidates` плюс explicit `shortage.fallback_acceptance_policy`, when interactive shortage HITL is enabled;
+- shortage fallback resume payload includes accepted safe fallback ids and known-issues acknowledgement when interactive shortage HITL is enabled and applicable;
 - selector не превращает HITL fallback union в `completed_enough` или `shortage.status = "enough"`;
 - selector не возвращает пользователя в shortage interrupt повторно после `accept_fewer` или durable `shortage.fallback_acceptance_policy`;
 - accepted draft создаёт объект `validated_candidate_versions`;

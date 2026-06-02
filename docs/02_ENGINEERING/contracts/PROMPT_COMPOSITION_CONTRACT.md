@@ -45,16 +45,23 @@ stage prompt context
 2. `truth_mode` base;
 3. `utility_mode` base and `utility_topic_layer`;
 4. `target_age` layer;
-5. `result_language` layer;
-6. `style` / `substyle` layers;
-7. `entity` / `subject` layers;
-8. `hard_details`;
-9. `soft_preferences`;
-10. `unresolved_details`;
-11. stage-specific instructions;
-12. output contract.
+5. `audience_language` layer;
+6. `result_language` layer;
+7. `style` / `substyle` layers;
+8. `entity` / `subject` layers;
+9. `hard_details`;
+10. `soft_preferences`;
+11. `unresolved_details`;
+12. stage-specific instructions;
+13. output contract.
 
 Этот порядок является общим правилом. Конкретный stage может использовать не все слои.
+
+`audience_language` controls user-facing wording and age/vocabulary framing for any composed context that emits text for the user or child.
+
+`result_language` controls final generated texts.
+
+If `audience_language` and `result_language` are the same, composition still keeps both roles or an explicit shared language-layer reference so lookup and prompt traces remain unambiguous.
 
 ---
 
