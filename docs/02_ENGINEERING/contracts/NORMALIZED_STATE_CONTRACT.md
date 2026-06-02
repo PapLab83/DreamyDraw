@@ -19,6 +19,7 @@
   "content_format": "story",
   "truth_mode": "TRUTH",
   "utility_mode": "NARRATIVE",
+  "utility_topic": null,
   "target_age": "3",
   "output_count": 5,
   "audience_language": "ru",
@@ -99,6 +100,7 @@
 | `content_format` | Формат результата: на MVP основной формат `story`. |
 | `truth_mode` | Режим отношения к реальности: `TRUTH`, `MYTH`, `FAIRY_TALE`. |
 | `utility_mode` | Цель результата: `NARRATIVE`, `TEACHING`, позже `ENGLISH`. |
+| `utility_topic` | Конкретная teaching/practical тема, если есть: например `hygiene_handwashing`, `road_crossing`, `stranger_candy_safety`; иначе `null`. |
 | `target_age` | Возрастной профиль: на MVP достаточно `3` и `5`. |
 | `output_count` | Сколько итоговых approved texts нужно пользователю. |
 | `audience_language` | Язык общения с пользователем. На старте `ru`. |
@@ -118,6 +120,8 @@
 | `prompt_context` | Результат prompt lookup и candidate layer resolution. |
 
 `current_config` и `user_context` используются как источники дефолтов и подсказок для интерпретации. Явный текущий запрос пользователя имеет приоритет над ними; если система хочет изменить уже выбранную настройку из-за смысла запроса, это должно проходить через clarification/arbitration, а не через молчаливую замену.
+
+`utility_topic` фиксирует конкретную прикладную тему только тогда, когда она действительно извлечена из запроса или выбрана после clarification. Если `utility_mode = TEACHING` и prompt lookup нашёл подходящий topic layer, `utility_topic` должен быть заполнен, а соответствующий слой должен попасть в `prompt_context.resolved_layers` с `type = "utility"` и `role = "utility_topic"`. Если подходящий слой не найден, тема остаётся в `prompt_context.unresolved_details` или требует clarification/fallback по правилам оркестрации.
 
 ---
 

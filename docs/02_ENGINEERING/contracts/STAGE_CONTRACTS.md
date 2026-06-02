@@ -452,6 +452,7 @@ approved_texts
 * `content_format`;
 * `truth_mode`;
 * `utility_mode`;
+* `utility_topic`;
 * `target_age`;
 * `main_subject`;
 * required `subjects`;

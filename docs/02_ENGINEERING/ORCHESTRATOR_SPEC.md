@@ -200,14 +200,16 @@ candidate_layer_resolution
 
 preview
   -> prompt_context_preparation
-      pass
-        -> candidate_text_generator
-      fail_reresolve
-        -> candidate_layer_resolution
-      fail_clarify
-        -> clarification_interrupt
-      fail_stop
-        -> END
+
+prompt_context_preparation
+  pass
+    -> candidate_text_generator
+  fail_reresolve
+    -> candidate_layer_resolution
+  fail_clarify
+    -> clarification_interrupt
+  fail_stop
+    -> END
 
 candidate_text_generator
   -> topic_deduplicator
@@ -817,6 +819,7 @@ Immutable fields:
 - `content_format`;
 - `truth_mode`;
 - `utility_mode`;
+- `utility_topic`;
 - `target_age`;
 - hard details.
 
@@ -1228,6 +1231,7 @@ completion_status
 normalized_request
 interpretation_state
 preview_state
+stage_status
 prompt_context
 stage_prompt_context
 candidate_texts
@@ -1292,7 +1296,61 @@ Minimum input request:
 
 Старая семантика `fast/check` не является частью нового контракта оркестрации. В текущем scope нет режима, который переводит pipeline к image generation. Если позже понадобится подтверждение preview или approved texts, это должно быть отдельной UI/HITL policy, а не возвратом старого `fast/check`.
 
-### 5.3 `normalized_request`
+### 5.3 `stage_status`
+
+`stage_status` хранит durable progress markers для non-interrupt recovery. Top-level result fields могут существовать как пустые списки или объекты, поэтому recovery не должен полагаться только на `exists/missing`.
+
+Минимальная форма:
+
+```json
+{
+  "candidate_text_generator": {
+    "status": "not_started|completed|failed",
+    "completed_at": null,
+    "input_hash": null,
+    "output_hash": null
+  },
+  "topic_deduplicator": {
+    "status": "not_started|completed|failed",
+    "completed_at": null,
+    "input_hash": null,
+    "output_hash": null
+  },
+  "scorer": {
+    "status": "not_started|completed|failed",
+    "completed_at": null,
+    "input_hash": null,
+    "output_hash": null
+  },
+  "ranker": {
+    "status": "not_started|completed|failed",
+    "completed_at": null,
+    "input_hash": null,
+    "output_hash": null
+  },
+  "validation_loop": {
+    "status": "not_started|running|completed|failed",
+    "completed_at": null,
+    "input_hash": null,
+    "output_hash": null
+  },
+  "approved_text_selector": {
+    "status": "not_started|completed|failed",
+    "completed_at": null,
+    "input_hash": null,
+    "output_hash": null
+  }
+}
+```
+
+Правила:
+
+- `not_started` должен быть явным status value; `null` field value допускается только при миграции, но не как нормальный recovery signal.
+- Пустой список результата может быть валидным completed output только если соответствующий `stage_status.<stage>.status = "completed"`.
+- `input_hash` и `output_hash` позволяют отличить валидный cached result от устаревшего состояния после изменения upstream snapshot.
+- Если status marker и result field противоречат друг другу, recovery ведёт к earliest safe verification node.
+
+### 5.4 `normalized_request`
 
 `normalized_request` describes the generation task:
 
@@ -1301,6 +1359,7 @@ Minimum input request:
   "content_format": "story",
   "truth_mode": "TRUTH",
   "utility_mode": "NARRATIVE",
+  "utility_topic": null,
   "target_age": "3",
   "output_count": 5,
   "audience_language": "ru",
@@ -1367,7 +1426,8 @@ Minimum input request:
   "prompt_context": {
     "resolved_layers": [
       {
-        "type": "content_format",
+        "type": "format",
+        "role": "content_format",
         "id": "CONTENT_FORMAT_STORY",
         "source": "content_formats/story/BASE.md",
         "reason": "content_format=story"
@@ -1379,7 +1439,8 @@ Minimum input request:
         "reason": "truth_mode=TRUTH"
       },
       {
-        "type": "utility_mode",
+        "type": "utility",
+        "role": "utility_mode",
         "id": "UTILITY_NARRATIVE_BASE",
         "source": "utility_modes/NARRATIVE/BASE.md",
         "reason": "utility_mode=NARRATIVE"
@@ -1391,13 +1452,15 @@ Minimum input request:
         "reason": "target_age=3"
       },
       {
-        "type": "audience_language",
+        "type": "language",
+        "role": "audience_language",
         "id": "LANGUAGE_RU_AUDIENCE",
         "source": "languages/ru/AUDIENCE.md",
         "reason": "audience_language=ru"
       },
       {
-        "type": "result_language",
+        "type": "language",
+        "role": "result_language",
         "id": "LANGUAGE_RU_RESULT",
         "source": "languages/ru/RESULT.md",
         "reason": "result_language=ru"
@@ -1421,8 +1484,11 @@ Minimum input request:
 - `current_config` — snapshot/default source, а не Stage 2 execution source.
 - `user_context` — object-with-empty-state, не `null`.
 - `visual_preferences` сохраняются для downstream, но text pipeline не использует их напрямую.
+- `utility_topic` фиксирует конкретную teaching/practical тему, когда она есть: например `hygiene_handwashing`, `road_crossing`, `stranger_candy_safety`.
+- Если `utility_mode = TEACHING` и metadata lookup нашёл подходящий topic layer, `normalized_request.utility_topic` должен быть заполнен, а topic layer должен попасть в `normalized_request.prompt_context.resolved_layers` с `type = "utility"` и `role = "utility_topic"`.
+- Если конкретный teaching topic не найден в PromptRegistry, он остаётся в unresolved/freeform context и может требовать clarification, fallback или hard unsupported decision по обычным правилам.
 
-### 5.4 `interpretation_state`
+### 5.5 `interpretation_state`
 
 ```json
 {
@@ -1455,7 +1521,7 @@ Minimum input request:
 }
 ```
 
-### 5.5 `preview_state`
+### 5.6 `preview_state`
 
 ```json
 {
@@ -1465,7 +1531,7 @@ Minimum input request:
 }
 ```
 
-### 5.6 `prompt_context`
+### 5.7 `prompt_context`
 
 ```json
 {
@@ -1477,7 +1543,8 @@ Minimum input request:
   "body_policy": "lazy_not_persisted",
   "resolved_layers": [
     {
-      "type": "content_format",
+      "type": "format",
+      "role": "content_format",
       "id": "CONTENT_FORMAT_STORY",
       "source": "content_formats/story/BASE.md",
       "reason": "content_format=story"
@@ -1489,7 +1556,8 @@ Minimum input request:
       "reason": "truth_mode=TRUTH"
     },
     {
-      "type": "utility_mode",
+      "type": "utility",
+      "role": "utility_mode",
       "id": "UTILITY_NARRATIVE_BASE",
       "source": "utility_modes/NARRATIVE/BASE.md",
       "reason": "utility_mode=NARRATIVE"
@@ -1501,13 +1569,15 @@ Minimum input request:
       "reason": "target_age=3"
     },
     {
-      "type": "audience_language",
+      "type": "language",
+      "role": "audience_language",
       "id": "LANGUAGE_RU_AUDIENCE",
       "source": "languages/ru/AUDIENCE.md",
       "reason": "audience_language=ru"
     },
     {
-      "type": "result_language",
+      "type": "language",
+      "role": "result_language",
       "id": "LANGUAGE_RU_RESULT",
       "source": "languages/ru/RESULT.md",
       "reason": "result_language=ru"
@@ -1527,13 +1597,16 @@ Minimum input request:
 Правила:
 
 - `id` — canonical stable UPPER_SNAKE.
+- `type` совпадает с enum из `PROMPT_FILE_CONTRACT.md`: `format`, `truth_mode`, `style`, `substyle`, `entity`, `utility`, `age`, `language`, `stage`, `validator`, `refiner`.
+- `role` является orchestration role и уточняет назначение слоя внутри resolved context, например `content_format`, `utility_mode`, `utility_topic`, `audience_language`, `result_language`.
+- Для слоёв, где contract type уже однозначен для orchestration, `role` может совпадать с `type` или отсутствовать; для `utility` и `language` role обязателен.
 - `source` хранит путь к prompt file.
 - Узкие детали без точного слоя могут храниться как unresolved freeform context.
 - Top-level `prompt_context` является execution snapshot, а не canonical interpretation object.
 - Layer decisions копируются из `normalized_request.prompt_context`.
 - Execution metadata хранится здесь, а не внутри `normalized_request.prompt_context`.
 
-### 5.7 `stage_prompt_context`
+### 5.8 `stage_prompt_context`
 
 `stage_prompt_context` хранит компактные per-stage context refs и summaries, созданные `PromptComposer`. По умолчанию он не должен хранить full prompt bodies.
 
@@ -1599,7 +1672,7 @@ Minimum input request:
 - `candidate_validator` создаёт context для каждой пары candidate/version и каждой validation attempt.
 - `candidate_refiner` создаёт context для каждой пары candidate/version и каждой refinement attempt; validator issues входят в stage context summary/hash.
 
-### 5.8 `refined_candidate_versions`
+### 5.9 `refined_candidate_versions`
 
 `refined_candidate_versions` хранит версии, созданные `candidate_refiner` и ожидающие повторной validation. Эти версии durable, но не считаются approved и не могут попасть в `approved_texts` без accepted validation result.
 
@@ -1629,7 +1702,7 @@ Minimum input request:
 - `candidate_validator` читает revised text отсюда только когда `validation_loop_state.active_text_source = "refined_candidate_versions"`.
 - Accepted item всё равно создаётся отдельно в `validated_candidate_versions`.
 
-### 5.9 `validation_loop_state`
+### 5.10 `validation_loop_state`
 
 `validation_loop_state` хранит durable cursor validation/refinement loop. Это canonical source для текущего rank index, active candidate/version и accepted count.
 
@@ -1663,7 +1736,7 @@ Minimum input request:
 - HITL fallback count для shortage считается отдельно как union `validated_candidate_versions + accepted safe_fallback_candidates`.
 - При переходе к следующему ranked candidate graph обновляет `current_rank_index`, `active_candidate_id`, `active_version_id = "{candidate_id}_v1"`, `active_version_origin = "draft"` и `active_text_source = "candidate_texts"`.
 
-### 5.10 `pipeline_counters`
+### 5.11 `pipeline_counters`
 
 ```json
 {
@@ -1682,7 +1755,7 @@ Rules:
 - `pipeline_counters` must not duplicate clarification attempt state.
 - Validation loop cursor и accepted count живут в `validation_loop_state`, а не в `pipeline_counters`.
 
-### 5.11 `pending_interrupt`
+### 5.12 `pending_interrupt`
 
 `pending_interrupt` — durable state для восстановления HITL после restart процесса. Он хранится в `SessionState` / `JSONStorage`, а не в `MemorySaver`.
 
@@ -1726,10 +1799,19 @@ Shortage example:
   "created_at": "2026-06-02T12:05:00Z",
   "attempt": 1,
   "resume_schema": {
-    "action": "accept_fewer|accept_safe_fallback|retry_generation|stop"
+    "action": "accept_fewer|accept_safe_fallback|retry_generation|stop",
+    "accepted_candidate_ids": ["candidate_id"],
+    "known_issues_acknowledged": "boolean"
   }
 }
 ```
+
+Правила shortage resume payload:
+
+- `accepted_candidate_ids` обязателен только для `action = "accept_safe_fallback"`.
+- `accepted_candidate_ids` должен быть subset of `safe_fallback_candidates[].candidate_id`.
+- `known_issues_acknowledged = true` обязателен для `accept_safe_fallback`, если у выбранных safe fallback candidates есть `known_issues`.
+- Interrupt node строит durable `shortage.fallback_acceptance_policy` из resume payload и сохраняет его в `SessionState`.
 
 Правила:
 
@@ -2027,6 +2109,57 @@ Re-entry rules:
 - Если recovered resume value присутствует, interrupt node обрабатывает его и очищает `pending_interrupt`.
 - Если recovered resume value отсутствует, CLI/API показывает `pending_interrupt.payload` и ждёт ввод пользователя без создания новой попытки.
 
+Non-interrupt recovery:
+
+```text
+completion_status in completed_enough|completed_with_shortage|completed_with_shortage_user_accepted|stopped_by_user|failed
+  -> END
+
+pending_interrupt.status = waiting
+  -> pending_interrupt.node
+
+prompt_context missing/invalid and normalized_request exists
+  -> candidate_layer_resolution or prompt_context_preparation, depending on validation state
+
+prompt_context valid and stage_status.candidate_text_generator.status = not_started
+  -> candidate_text_generator
+
+stage_status.candidate_text_generator.status = completed
+  and stage_status.topic_deduplicator.status = not_started
+  -> topic_deduplicator
+
+stage_status.topic_deduplicator.status = completed
+  and stage_status.scorer.status = not_started
+  -> scorer
+
+stage_status.scorer.status = completed
+  and stage_status.ranker.status = not_started
+  -> ranker
+
+stage_status.ranker.status = completed
+  and stage_status.validation_loop.status in not_started|running
+  -> candidate_validator using validation_loop_state
+
+stage_status.validation_loop.status = completed
+  and stage_status.approved_text_selector.status = not_started
+  -> approved_text_selector
+
+shortage.status != enough and shortage_hitl_enabled = true and shortage.user_decision is null
+  -> shortage_fallback_interrupt
+
+shortage.status != enough and shortage.user_decision or shortage.fallback_acceptance_policy exists
+  -> approved_text_selector or END according to shortage routing
+```
+
+Правила:
+
+- `entry_point_from_session` должен использовать persisted business state, а не только `current_node`.
+- Recovery route выбирается по `stage_status`, `completion_status`, `pending_interrupt`, `validation_loop_state` и snapshot hashes.
+- Top-level result fields (`candidate_texts`, `scores`, `ranked_candidates`, `approved_texts` и т.д.) могут быть пустыми валидными результатами; `exists/missing` не является достаточным recovery signal.
+- Recovery не должен повторять Stage 1 или candidate generation, если durable downstream state уже существует и hash/snapshot checks валидны.
+- Если recovered state противоречивый или snapshot hashes invalid, graph routes to the earliest safe verification node, usually `prompt_context_preparation`.
+- During validation recovery, `validation_loop_state` is the source of active candidate/version/source.
+
 Persistent LangGraph checkpointer can be introduced later, but is not required for Stage 1-2 MVP.
 
 ---
@@ -2156,9 +2289,11 @@ The orchestrator implementation is complete when:
 - all clarification branches route back to analysis/classification;
 - `normalized_request` is separate from process metadata;
 - `PromptRegistry` validates metadata and stable ids;
+- resolved layer `type` uses `PROMPT_FILE_CONTRACT.md` enum and orchestration-specific meaning is stored in `role`;
 - metadata lookup returns utility mode/topic and audience/result language candidates when applicable;
 - `PromptComposer` creates stage-specific contexts;
 - `PromptComposer` includes utility mode, utility topic when applicable, audience language and result language layers;
+- teaching topics are represented in `normalized_request.utility_topic` and resolved prompt layers when registry match exists;
 - Stage 2 generates candidate pool with default count 20;
 - duplicate themes are filtered or marked;
 - hard gates can exclude candidates before approval;
@@ -2168,6 +2303,7 @@ The orchestrator implementation is complete when:
 - refiner preserves immutable fields;
 - selector читает normal approved text content из `validated_candidate_versions`, а не из `candidate_texts` или `ranked_candidates`;
 - selector может включить HITL fallback только из `safe_fallback_candidates` плюс explicit `shortage.fallback_acceptance_policy`;
+- shortage fallback resume payload includes accepted safe fallback ids and known-issues acknowledgement when applicable;
 - selector не превращает HITL fallback union в `completed_enough` или `shortage.status = "enough"`;
 - selector не возвращает пользователя в shortage interrupt повторно после `accept_fewer` или durable `shortage.fallback_acceptance_policy`;
 - accepted draft создаёт объект `validated_candidate_versions`;
@@ -2178,5 +2314,6 @@ The orchestrator implementation is complete when:
 - shortage is explicit when output count is not met;
 - execution lookup returns status envelope and never behaves as a plain layer-list lookup;
 - no image/animation node is part of current graph;
-- JSONStorage can restore meaningful progress;
+- `stage_status` distinguishes not started, completed-empty result and failed stages for recovery;
+- JSONStorage can restore meaningful progress, including non-interrupt Stage 2 progress without restarting from Stage 1;
 - Langfuse traces contain enough debug refs to inspect approved text decisions.
