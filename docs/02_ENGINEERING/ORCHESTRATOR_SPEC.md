@@ -1,758 +1,1454 @@
-# Спецификация оркестратора (DreamyDraw)
+# ORCHESTRATOR_SPEC.md
 
-Технический контракт логики работы пайплайна. Описывает что делает оркестратор, в каком порядке, как обрабатывает циклы валидации и где может вмешаться пользователь.
+# Техническая спецификация оркестратора DreamyDraw
 
-Документ организован в двух слоях:
-- **Логический слой** (разделы 1, 3, 4, 5, 9) — что делает пайплайн, без привязки к реализации.
-- **Технический слой** (разделы 2, 6, 8) — как это собрано в коде на LangGraph.
+Статус: draft новой целевой спецификации.
+
+Этот документ является активным техническим контрактом новой оркестрации DreamyDraw. Он описывает реализацию первых двух этапов:
+
+1. сбор, нормализация, уточнение и финальная фиксация параметров генерации;
+2. text pipeline до итогового набора `approved_texts`.
+
+Третий этап визуализации в текущий scope не входит. Текущий orchestration boundary заканчивается на `approved_texts`; будущий image/animation pipeline должен потреблять их как downstream input.
+
+Документ должен быть достаточен для реализации кода оркестратора без обращения к старой orchestration-реализации. Бизнес-логика и контракты сохранены в целевой форме: `normalized_request` описывает задачу генерации, процессные данные живут отдельно, prompt lookup разделён на metadata/execution phases, а Stage 2 выбирает approved texts только из validated candidate versions.
+
+Эта спецификация определяет ownership оркестрации: ноды, routing, state placement, interrupt/resume, persistence и observability. Вложенные контракты данных являются активными источниками истины:
+
+- `contracts/NORMALIZED_STATE_CONTRACT.md`;
+- `contracts/PROMPT_FILE_CONTRACT.md`;
+- `contracts/PROMPT_LOOKUP_CONTRACT.md`;
+- `contracts/PROMPT_COMPOSITION_CONTRACT.md`;
+- `contracts/STAGE_CONTRACTS.md`;
+- `contracts/SCOPE_BOUNDARIES.md`;
+- `contracts/GOLDEN_SCENARIOS.md`.
+
+Если эта спецификация и контракт расходятся по форме вложенного объекта, приоритет у контрактного документа. Если контракт не описывает routing, ownership или порядок нод, приоритет у этой спецификации.
 
 ---
 
-## 1. Общий пайплайн
+## 1. Scope
 
-Оркестратор работает по принципу **Plan → Validate (with refinement loops) → Generate**.
+### 1.1 In scope
 
-Высокоуровневые фазы:
+В scope входят:
 
-1. **Валидация входа** — проверка темы и совместимости с режимом.
-2. **Планирование серии** — генерация пула идей и выбор финального плана.
-3. **Контур валидации плана** — циклическая проверка плана с возможной редактурой и арбитражом пользователя.
-4. **Генерация контента** — пакетная генерация текстов, согласование с пользователем, генерация иллюстраций.
+- LangGraph-граф новой оркестрации;
+- новые ноды Stage 1 и Stage 2;
+- routing-функции;
+- структура `GraphState`;
+- расширение `SessionState`;
+- interrupt/resume точки;
+- PromptRegistry;
+- PromptComposer;
+- prompt metadata lookup;
+- prompt execution lookup;
+- stage-specific prompt context;
+- text candidate pipeline;
+- validation/refinement loop;
+- shortage/fallback branch;
+- JSONStorage persistence;
+- Langfuse observability;
+- migration-ready implementation constraints.
 
-Полный поток (упрощённо):
+Финальный успешный output:
 
-```
-Тема + Конфигурация
-        │
-        ▼
-[1] Safety Gate ──fail──▶ STOP
-        │ pass
-        ▼
-[2] Config Match ──mismatch──▶ [USER: переключить режим?]
-        │ pass                         │
-        │ ◀──────────────── y ─────────┤
-        │                              └── n ──▶ STOP
-        ▼
-[3] Series Planner (режимо-зависимый)
-        │
-        ▼
-[4] Idea Scoring
-        │
-        ▼
-[5] Score Normalize
-        │
-        ▼
-[6] Idea Sampler ─────► план серии (N идей)
-        │
-        ▼
-┌─────► [7] Plan Validator (режимо-зависимый)
-│           │
-│           ├─ APPROVED ─────────────────────┐
-│           │                                │
-│           └─ REJECTED                      │
-│                │                           │
-│                ▼                           │
-│           [counter++]                      │
-│                │                           │
-│                ├─ counter < threshold      │
-│                │   │                       │
-│                │   ▼                       │
-│                │  [8] Plan Reviewer        │
-│                │   │                       │
-│                │   ▼                       │
-│                │  [9] Plan Refiner ────────┘ (если REVISE)
-│                │                           │
-│                └─ counter >= threshold     │
-│                    │                       │
-│                    ▼                       │
-│                [USER ARBITRATION]          │
-│                    │                       │
-│                    ├─ "ок"/"хорошо" ───────│──▶ форсированное одобрение
-│                    │                       │
-│                    └─ комментарий ─────────│──▶ [8] → [9] → возврат в [7]
-│                                            │
-└────────────────────────────────────────────┘
-                                             │
-                                             ▼
-                              [10] Text Generation (по каждой истории)
-                                             │
-                                             ▼
-                              [11] User Confirmation (если режим check)
-                                             │     │
-                                             │     ├─ y ──▶ продолжить
-                                             │     ├─ n ──▶ STOP
-                                             │     └─ r ──▶ возврат в [10]
-                                             ▼
-                              [12] Image Generation
-                                             │
-                                             ▼
-                                          DONE
+```text
+SessionState.approved_texts
 ```
 
-В пайплайне есть **три точки взаимодействия с пользователем**:
-- арбитраж конфигурации (если тема не сочетается с выбранным режимом),
-- арбитраж плана (если валидатор не может сойтись с редактором),
-- подтверждение текстов (только в режиме `check`).
+### 1.2 Out of scope
 
-Подробнее — в разделе 4.
+В текущую реализацию не входят:
 
----
+- генерация картинок;
+- image prompt execution;
+- серии изображений;
+- анимации;
+- loop/pendulum animation;
+- микро-мультики;
+- visual validation;
+- full visual pipeline;
+- UI личного кабинета;
+- долгосрочная история пользователя;
+- vector search по prompt базе;
+- отдельный агент для каждого score component.
 
-## 2. Граф пайплайна
-
-Оркестратор реализован как **LangGraph-граф**. Каждый шаг логики из раздела 1 — это отдельная нода. Переходы между нодами заданы рёбрами (включая условные `add_conditional_edges`), а не `if/elif` в коде. Точки взаимодействия с пользователем реализованы через `interrupt()`.
-
-### 2.1 Ноды графа
-
-| Идентификатор ноды | Логический шаг | Тип |
-|---|---|---|
-| `NODE_SAFETY_GATE` | [1] Safety Gate | 🤖 LLM |
-| `NODE_CONFIG_MATCH` | [2] Config Match | 🤖 LLM |
-| `NODE_CONFIG_ARBITRATION` | пользовательский арбитраж конфига | 🙋 Interrupt |
-| `NODE_SERIES_PLANNER` | [3] Series Planner | 🤖 LLM |
-| `NODE_IDEA_SCORING` | [4] Idea Scoring | 🤖 LLM |
-| `NODE_SCORE_NORMALIZE` | [5] Score Normalize | ⚙️ Детерминированный |
-| `NODE_IDEA_SAMPLER` | [6] Idea Sampler | ⚙️ Детерминированный |
-| `NODE_PLAN_VALIDATOR` | [7] Plan Validator | 🤖 LLM |
-| `NODE_PLAN_REVIEWER` | [8] Plan Reviewer | 🤖 LLM |
-| `NODE_PLAN_REFINER` | [9] Plan Refiner | 🤖 LLM |
-| `NODE_PLAN_ARBITRATION` | пользовательский арбитраж плана | 🙋 Interrupt |
-| `NODE_TEXT_GENERATION` | [10] Text Generation | 🤖 LLM |
-| `NODE_USER_CONFIRMATION` | [11] User Confirmation (HITL) | 🙋 Interrupt |
-| `NODE_IMAGE_GENERATION` | [12] Image Generation | 🤖 Image Model |
-
-Любая нода имеет сигнатуру `(GraphState) -> GraphState`. Это позволяет нодам быть автономными и пригодными для отдельного юнит-тестирования.
-
-### 2.2 Рёбра
-
-Линейные рёбра:
-- `START → safety_gate`
-- `series_planner → idea_scoring → score_normalize → idea_sampler`
-- `image_generation → END`
-
-Условные рёбра (routing-функции в `src/core/graph/routing.py`):
-
-| Из ноды | Routing-функция | Возможные таргеты |
-|---|---|---|
-| `safety_gate` | `route_after_safety` | `config_match`, `END` |
-| `config_match` | `route_after_config_match` | `series_planner`, `config_arbitration`, `END` |
-| `config_arbitration` | `route_after_config_arbitration` | `series_planner`, `END` |
-| `idea_sampler` | `_route_after_sampler` | `plan_validator`, `END` |
-| `plan_validator` | `route_after_validator` | `text_generation`, `plan_reviewer`, `plan_arbitration`, `END` |
-| `plan_reviewer` | `route_after_reviewer` | `plan_refiner`, `END` |
-| `plan_refiner` | `route_after_refiner` | `plan_validator`, `END` |
-| `plan_arbitration` | `route_after_arbitration` | `text_generation`, `plan_reviewer` |
-| `text_generation` | `route_after_text_generation` | `user_confirmation`, `image_generation` |
-| `user_confirmation` | `route_after_user_confirmation` | `image_generation`, `text_generation`, `END` |
-
-### 2.3 Поле `current_node`
-
-`SessionState.current_node` сохранён в схеме и используется как **информационный маркер прогресса**:
-- отображение в CLI (что происходит сейчас, на чём прервалась сессия),
-- восстановление контекста при `--session <id>`,
-- инвариант: значение `"failed"` означает терминальную ошибку (см. раздел 9).
-
-**Переходы между нодами определяет граф**, а не значение `current_node`.
-
-### 2.4 Сборка графа
-
-Граф собирается один раз в `Orchestrator.__init__` через `build_graph(...)`. Все зависимости (`llm`, `image`, `storage`, `prompt_builder`) инжектируются в ноды через фабрики `make_<node>(...)`, которые возвращают замыкания с подшитыми зависимостями. Это гарантирует, что:
-- ноды не таскают глобальный контекст,
-- их можно подменять моками в тестах,
-- каждая нода видна в Langfuse как отдельный span благодаря `@observe`.
+`visual_preferences` сохраняются в `normalized_request` для будущего downstream этапа, но Stage 2 не использует их как управляющие параметры текстовой генерации. Допустимое исключение: текстовый кандидат может заполнить `expected_visual_idea` как подсказку для будущей визуализации.
 
 ---
 
-## 3. Описание узлов пайплайна
+## 2. Core Architecture
 
-### Фаза I. Валидация входа
+### 2.1 Principle
 
-#### [1] Safety Gate
-- **Нода:** `NODE_SAFETY_GATE` (`make_safety_gate`)
-- **Тип:** 🤖 LLM
-- **Промпт:** `text/SAFETY_GATE.md`
-- **Цель:** Отсечь темы с насилием, взрослым контентом, опасными сценариями.
-- **Вход:** `topic`.
-- **Выход:** при неудаче — `current_node = "failed"` → переход в `END`.
-- **DoD:** Тема признана безопасной для детской аудитории.
+Оркестратор является тонким фасадом над LangGraph:
 
-#### [2] Config Match
-- **Нода:** `NODE_CONFIG_MATCH` (`make_config_match`)
-- **Тип:** 🤖 LLM
-- **Промпт:** `text/CONFIG_MATCH.md`
-- **Цель:** Проверить совместимость темы и выбранного `truth_mode`.
-- **Логика:** Если несовместимо — граф уходит в ноду `config_arbitration` (interrupt с предложенным режимом). Если совместимо — переход к планировщику.
-- **DoD:** Конфигурация признана логически верной либо явно подтверждена пользователем.
+```text
+CLI/API
+  -> Orchestrator.start_session(...)
+  -> Orchestrator.run_pipeline(...)
+  -> LangGraph
+  -> SessionState in JSONStorage
+```
 
-#### [2a] Config Arbitration (HITL)
-- **Нода:** `NODE_CONFIG_ARBITRATION` (`make_config_arbitration`)
-- **Тип:** 🙋 Interrupt
-- **Цель:** Спросить пользователя, переключить ли `truth_mode` на предложенный валидатором.
-- **Payload interrupt:** `{type: "config_arbitration", reason, current_mode, suggested_mode}`.
-- **Resume value:** `"y"` (переключить и продолжить) / `"n"` (отменить).
-- **DoD:** Пользователь либо подтвердил смену режима, либо отменил сессию.
+Фасад не содержит бизнес-ветвлений. Он отвечает только за:
 
-### Фаза II. Планирование серии
+- создание `SessionState`;
+- загрузку сессии из `JSONStorage`;
+- запуск/возобновление LangGraph;
+- передачу `Command(resume=...)` после interrupt;
+- извлечение interrupt payload;
+- возврат `PipelineResult`;
+- создание root trace для observability.
 
-#### [3] Series Planner
-- **Нода:** `NODE_SERIES_PLANNER` (`make_series_planner`)
-- **Тип:** 🤖 LLM
-- **Промпт (режимо-зависимый):**
-  - `text/planners/SERIES_PLANNER_TRUTH.md`
-  - `text/planners/SERIES_PLANNER_MYTH.md`
-  - `text/planners/SERIES_PLANNER_FAIRY_TALE.md`
-- **Цель:** Сгенерировать пул идей в правильном жанровом регистре + `global_context` (описание персонажа).
-- **Выход:** `session.ideas_pool` (`List[Idea]`), `session.global_context`.
-- **DoD:** Пул из валидных идей в нужном режиме готов к скорингу.
+Бизнес-логика находится в нодах. Переходы находятся в graph builder и routing-функциях.
 
-#### [4] Idea Scoring
-- **Нода:** `NODE_IDEA_SCORING` (`make_idea_scoring`)
-- **Тип:** 🤖 LLM
-- **Промпт:** `text/IDEA_SCORING.md` (режимо-нейтральный, оценивает безопасность для возраста 3-5).
-- **Цель:** Каждой идее присвоить `child_index` ∈ [0, 1].
-- **Доп. логика:** идеи с `child_index < MIN_CHILD_INDEX` отсеиваются. Если пул пуст — fallback "Прогулка в лесу" со скором `FALLBACK_IDEA_CHILD_INDEX`.
-- **DoD:** Все идеи имеют скор; пул непустой (за счёт fallback).
+### 2.2 Runtime components
 
-#### [5] Score Normalize
-- **Нода:** `NODE_SCORE_NORMALIZE` (`make_score_normalize`)
-- **Тип:** ⚙️ Детерминированный
-- **Алгоритм:** Линейная нормализация со смещением `SCORE_NORMALIZATION_EPSILON` (см. раздел 7).
-- **Цель:** Получить веса для взвешенной выборки.
-- **DoD:** У каждой идеи `normalized_weight`, сумма весов = 1.
+| Component | Responsibility |
+| --- | --- |
+| `Orchestrator` | Thin facade for session lifecycle and graph invocation. |
+| `GraphState` | Transport wrapper around `SessionState` plus resume/service fields. |
+| `SessionState` | Durable state and source of truth between nodes/processes. |
+| `JSONStorage` | Long-term session persistence. |
+| `MemorySaver` | In-process LangGraph checkpointer for interrupt/resume mechanics. |
+| `PromptRegistry` | Prompt layer metadata index and lookup service. |
+| `PromptComposer` | Stage-specific prompt context builder. |
+| Langfuse client | Tracing, span metadata, prompt/context debug refs. |
 
-#### [6] Idea Sampler
-- **Нода:** `NODE_IDEA_SAMPLER` (`make_idea_sampler`)
-- **Тип:** ⚙️ Детерминированный
-- **Алгоритм:** Взвешенная случайная выборка без повторений (`random.choices` + удаление выбранной + ренормализация).
-- **Цель:** Выбрать `count` уникальных идей из пула.
-- **Выход:** `session.series_plan` (список названий тем), `session.full_plan_items` (список объектов `{theme, content}`), инициализация `session.revision_history`.
-- **DoD:** Финальный план из N идей готов к валидации.
+### 2.3 GraphState
 
-### Фаза III. Контур валидации плана
-
-#### [7] Plan Validator
-- **Нода:** `NODE_PLAN_VALIDATOR` (`make_plan_validator`)
-- **Тип:** 🤖 LLM
-- **Промпт (режимо-зависимый):**
-  - `text/validators/PLAN_VALIDATOR_TRUTH.md`
-  - `text/validators/PLAN_VALIDATOR_MYTH.md`
-  - `text/validators/PLAN_VALIDATOR_FAIRY_TALE.md`
-- **Цель:** Проверить каждую тему на соответствие правилам режима ("красные флаги").
-- **Логика:**
-  - Темы из `approved_indices` пропускает (статус `ALREADY_APPROVED_BY_YOU`).
-  - Для отклонённых — записывает `validator_feedback` с `invalid_indices`, `reasons`, `suggestions`.
-  - При `APPROVED` всех тем — граф уходит в `text_generation`, **счётчик `validation_cycles` сбрасывается в 0**.
-  - При `REJECTED` — **инкремент `validation_cycles += 1`**, переход в `plan_reviewer` (если < `USER_ARBITRATION_THRESHOLD`) или в `plan_arbitration` (если ≥ порога).
-- **DoD:** Все темы либо одобрены, либо помечены как требующие правки с указанием причины.
-
-#### [8] Plan Reviewer
-- **Нода:** `NODE_PLAN_REVIEWER` (`make_plan_reviewer`)
-- **Тип:** 🤖 LLM
-- **Промпт:** `text/PLAN_REVIEWER.md` (режимо-нейтральный).
-- **Цель:** По каждой теме принять одно из решений:
-  - `REVISE` — отправить на доработку редактору.
-  - `KEEP_ORIGINAL` — оставить оригинал (только при явном требовании автора).
-  - `ALREADY_OK` — тема не была отклонена и не требует изменений.
-- **Доп. логика:**
-  - При **пустом ответе** ревьюера — fallback `_build_fallback_decisions` (отклонённые → REVISE, остальные → ALREADY_OK).
-  - **Страховка:** если ревьюер выбрал `KEEP_ORIGINAL` для отклонённой темы при пустом `user_comment` — принудительная замена на `REVISE`.
-- **DoD:** Каждой теме присвоено решение.
-
-#### [9] Plan Refiner
-- **Нода:** `NODE_PLAN_REFINER` (`make_plan_refiner`)
-- **Тип:** 🤖 LLM
-- **Промпт (режимо-зависимый):**
-  - `text/refiners/PLAN_REFINER_TRUTH.md`
-  - `text/refiners/PLAN_REFINER_MYTH.md`
-  - `text/refiners/PLAN_REFINER_FAIRY_TALE.md`
-- **Цель:** Аккуратно довести `validator_suggestion` до финального вида (без отсебятины).
-- **Принцип:** Редактор — НЕ автор. Берёт рекомендацию валидатора как основу, делает минимальные правки (опечатки, имя героя в серии). Запрещено добавлять новые предложения, эмоциональные обобщения, мораль.
-- **Логика:** Запускается только для тем с решением `REVISE`. При пустом ответе → `current_node = "failed"`, граф уходит в `END`. После успешной правки — возврат в `plan_validator`.
-- **DoD:** Все темы с решением `REVISE` обновлены в `full_plan_items`.
-
-#### [9a] Plan Arbitration (HITL)
-- **Нода:** `NODE_PLAN_ARBITRATION` (`make_plan_arbitration`)
-- **Тип:** 🙋 Interrupt
-- **Цель:** Показать пользователю проблемные темы и попросить либо свободный комментарий, либо форсированное одобрение.
-- **Payload interrupt:** `{type: "plan_arbitration", validation_cycles, threshold, problems: [{index, current_theme, current_content, last_validator_note, history_size}]}`.
-- **Resume value:**
-  - `"ок"` / `"хорошо"` / `"хватит"` — форсированное одобрение текущего плана, переход в `text_generation`, счётчик сбрасывается.
-  - Любой другой текст — сохраняется в `session.user_feedback` и граф уходит в `plan_reviewer` для нового цикла.
-- **DoD:** Пользователь либо принудительно одобрил план, либо дал комментарий для следующей итерации.
-
-### Фаза IV. Генерация контента
-
-#### [10] Text Generation
-- **Нода:** `NODE_TEXT_GENERATION` (`make_text_generation`)
-- **Тип:** 🤖 LLM
-- **Промпт:** `text/TEXT_BASE_PROMPT.md` + `truth_modes/{TRUTH|MYTH|FAIRY_TALE}.md` + `styles/{GENTLE|EDUCATIONAL|PLAYFUL}.md`.
-- **Цель:** Сгенерировать полный текст истории + 2-3 вопроса по тексту.
-- **Вход:** одобренный сюжет из `approved_plan_items[i]`.
-- **Выход:** `story.text`, `story.questions` для каждой истории.
-- **Дальнейший роут:** в режиме `check` — в `user_confirmation`, в режиме `fast` — сразу в `image_generation`.
-- **DoD:** Все истории имеют текст и вопросы.
-
-#### [11] User Confirmation (только в режиме `check`)
-- **Нода:** `NODE_USER_CONFIRMATION` (`make_user_confirmation`)
-- **Тип:** 🙋 Interrupt
-- **Цель:** Пользователь подтверждает все тексты пакетно перед генерацией картинок.
-- **Payload interrupt:** `{type: "user_confirmation", stories: [{index, sub_topic, text, questions}]}`.
-- **Resume value:**
-  - `"y"` — подтвердить → переход в `image_generation`. Все `StoryItem.is_confirmed = True`.
-  - `"r"` — перегенерировать всё → возврат в `text_generation`.
-  - `"n"` (или любое другое) — отмена → `current_node = "failed"`, переход в `END`.
-- **DoD:** Все тексты подтверждены либо сессия завершена.
-
-#### [12] Image Generation
-- **Нода:** `NODE_IMAGE_GENERATION` (`make_image_generation`)
-- **Тип:** 🤖 Image Model
-- **Промпт:** `image/IMAGE_BASE_PROMPT.md` + `image/styles/{CARTOON|WATERCOLOR|CLAY|NIGHT}.md`.
-- **Цель:** Сгенерировать иллюстрацию для каждой истории.
-- **Логика:** Синхронный вызов провайдера, сохранение в `output/<session_id>/story_{i}.png`.
-- **DoD:** `session.is_completed = True`.
-
----
-
-## 4. Циклы валидации и арбитраж пользователя
-
-Ключевой механизм качества плана. Реализует контролируемый цикл "проверить → исправить → проверить" с защитой от бесконечной петли.
-
-### Счётчик `validation_cycles`
-
-- **Хранение:** `SessionState.validation_cycles: int`.
-- **Семантика:** считает количество **REJECTED**-результатов от валидатора.
-- **Инкремент:** в ноде `plan_validator` при статусе REJECTED.
-- **Сброс в 0:** при полном одобрении плана (переход в `text_generation`) и при форсированном одобрении через арбитраж.
-- **Назначение сброса:** валидатор будет переиспользоваться на других этапах (валидация текстов, картинок) — счётчик каждого этапа должен начинаться с нуля.
-
-### Пороги и поведение
-
-| `validation_cycles` после инкремента | Поведение |
-|---|---|
-| от 1 до `USER_ARBITRATION_THRESHOLD - 1` | Граф уходит в `plan_reviewer` → `plan_refiner` → обратно в `plan_validator`. Авторежим: ревьюер и редактор работают самостоятельно, без участия пользователя. |
-| `USER_ARBITRATION_THRESHOLD` и выше | Граф уходит в `plan_arbitration` (interrupt). Пользователь видит проблемные темы и может вмешаться. |
-| > `MAX_VALIDATION_RETRIES` | Принудительный переход в `END` через `current_node = "failed"`. Защита от бесконечной петли. |
-
-### Арбитраж пользователя
-
-Когда `validation_cycles >= USER_ARBITRATION_THRESHOLD`, граф останавливается на `plan_arbitration`. Пользователю показываются:
-- Текущая версия проблемных тем (от редактора).
-- Последнее замечание валидатора по каждой теме.
-- Размер истории правок по каждой теме.
-
-Пользователь может:
-- Ввести **свободный комментарий** → сохраняется в `session.user_feedback`, граф уходит в `plan_reviewer` для нового цикла.
-- Ввести **`ок` / `хорошо` / `хватит`** → форсированное одобрение текущей версии без валидации, счётчик сбрасывается, граф уходит в `text_generation`.
-
-### История правок
-
-Все изменения тем сохраняются в `SessionState.revision_history: dict[str(idx), list[record]]`.
-Каждая запись содержит:
-- `source` — `planner`, `validator`, `reviewer:accept_suggestion`, `reviewer:keep_original`, `refiner`.
-- `theme`, `content` — версия на момент записи.
-- `note` — пояснение.
-
-Используется в арбитраже для показа пользователю и для отладки (полная история сохраняется в JSON-сессии).
-
----
-
-## 5. Режимная архитектура
-
-Три режима правдивости (`TruthMode`): `Правда` / `Миф` / `Сказка`.
-
-Промпты разделены по режимам в трёх ключевых точках пайплайна:
-
-| Узел | Файлы |
-|---|---|
-| Series Planner | `planners/SERIES_PLANNER_{TRUTH,MYTH,FAIRY_TALE}.md` |
-| Plan Validator | `validators/PLAN_VALIDATOR_{TRUTH,MYTH,FAIRY_TALE}.md` |
-| Plan Refiner | `refiners/PLAN_REFINER_{TRUTH,MYTH,FAIRY_TALE}.md` |
-
-**Режимо-нейтральные** промпты (один файл на все режимы):
-- `SAFETY_GATE.md`, `CONFIG_MATCH.md`
-- `IDEA_SCORING.md`
-- `PLAN_REVIEWER.md`
-
-**Текстовая генерация** использует другую модель подмешивания: один общий `TEXT_BASE_PROMPT.md` + один из `truth_modes/{TRUTH|MYTH|FAIRY_TALE}.md` + стиль текста.
-
-Маппинг значения режима → суффикс файла реализован в `PromptBuilder._map_truth_mode_to_suffix`:
-- `Правда` → `TRUTH`
-- `Миф` → `MYTH`
-- `Сказка` → `FAIRY_TALE`
-
----
-
-## 6. Состояние сессии и состояние графа
-
-### 6.1 `SessionState` — продуктовая модель
-
-Хранится в `SessionState` (см. `src/models/schemas.py`). Это **источник правды** для логики оркестратора. Каждая нода читает и мутирует именно этот объект.
-
-#### Ключевые поля для оркестрации
-
-| Поле | Тип | Назначение |
-|---|---|---|
-| `current_node` | str | Информационный маркер текущего шага (см. §2.3) |
-| `series_plan` | List[str] | Список названий тем |
-| `full_plan_items` | List[dict] | Полный план с `theme` и `content` |
-| `approved_plan_items` | dict | Чистовик одобренных тем по индексу |
-| `approved_indices` | List[int] | Индексы тем, прошедших валидацию |
-| `global_context` | str | Описание персонажа и мира серии |
-| `ideas_pool` | List[Idea] | Пул идей до сэмплинга |
-| `validation_cycles` | int | Счётчик REJECTED-циклов |
-| `validator_feedback` | str (JSON) | Последний фидбек валидатора |
-| `user_feedback` | Optional[str] | Комментарий пользователя для рефайна |
-| `revision_history` | dict | История всех правок по темам |
-| `stories` | List[StoryItem] | Готовые истории |
-| `is_completed` | bool | Флаг завершения всей генерации |
-
-### 6.2 `GraphState` — обёртка для LangGraph
-
-Минимальный `TypedDict`, который ходит между нодами LangGraph:
+`GraphState` остаётся минимальным:
 
 ```python
 class GraphState(TypedDict, total=False):
-    session: SessionState        # источник правды
-    user_input: Optional[Any]    # значение от Command(resume=...)
-```
-
-`user_input` заполняется снаружи при возобновлении после interrupt и обнуляется нодой после прочтения. Никакой бизнес-логики в `GraphState` нет — это просто транспорт.
-
-Преобразования:
-- `to_graph_state(session)` — вход в граф,
-- `from_graph_state(state)` — извлечение сессии после завершения.
-
-### 6.3 `PipelineResult` — результат `run_pipeline`
-
-```python
-@dataclass
-class PipelineResult:
     session: SessionState
-    interrupt: Optional[dict] = None
-
-    is_done: bool          # interrupt is None — граф завершился
-    is_waiting_user: bool  # interrupt is not None — ждём ввода
-    interrupt_type: Optional[str]  # 'config_arbitration' | 'plan_arbitration' | 'user_confirmation'
+    user_input: Optional[Any]
 ```
 
-CLI крутит цикл `run_pipeline → handler → run_pipeline` до тех пор, пока `is_done == True`.
+Правила:
 
-### 6.4 Персистентность: два слоя
-
-| Слой | Что хранит | Технология |
-|---|---|---|
-| In-process | Состояние LangGraph между interrupt и resume в рамках одного процесса | `MemorySaver` (checkpointer) |
-| Долгосрочный | `SessionState` целиком, после каждого шага | `JSONStorage` → диск |
-
-**Источник правды между запусками — JSONStorage.** Каждая нода сама сохраняет сессию через `storage.save_session(session)` после своих изменений. При вызове `run_pipeline` оркестратор предпочитает читать сессию из JSONStorage, а не из финального state графа — это надёжнее на случай прерывания.
-
-`MemorySaver` нужен только для механики interrupt/resume в рамках одного процесса. Восстановление сессии между процессами (`--session <id>`) работает за счёт того, что каждая нода читает `session.current_node` и LangGraph переходит на нужное место графа.
-
-### 6.5 Observability
-
-Корневой span каждого запуска `run_pipeline` создаётся через `start_root_span("orchestrator.run_pipeline")`. Все ноды графа помечены `@observe(name=...)` и автоматически попадают в один Langfuse trace благодаря OpenTelemetry-контексту. На корневой span навешиваются:
-- `session_id`, `user_id`, теги (`truth_mode`, `work_mode`, `image_style`),
-- input (topic, resume-флаг),
-- финальный output (`current_node`, `is_completed`, `validation_cycles`, `waiting_user`).
+- `session` — единственное долговременное бизнес-состояние.
+- `user_input` — временное значение после resume.
+- Бизнес-данные не должны храниться только в `GraphState`.
+- Ноды возвращают обновлённый `{"session": session}`.
+- `current_node` — маркер прогресса/debug, а не imperative router.
 
 ---
 
-## 7. Конфигурация и константы
+## 3. Target LangGraph
 
-Все поведенческие значения оркестратора должны задаваться через `settings.py` или `constants.py`, а не локальными литералами в методах.
+### 3.1 Node names
 
-Базовый набор констант для оркестратора:
+Recommended node constants:
 
-| Константа | Назначение |
-|---|---|
-| `IDEA_POOL_SIZE` | Размер пула идей, который просит `Series Planner` |
-| `MIN_CHILD_INDEX` | Минимальный `child_index` для прохождения фильтра |
-| `DEFAULT_IDEA_CHILD_INDEX` | Скор по умолчанию при ошибке скоринга |
-| `FALLBACK_IDEA_CHILD_INDEX` | Скор fallback-идеи, если весь пул отсеян |
-| `SCORE_NORMALIZATION_EPSILON` | Смещение для линейной нормализации весов |
-| `USER_ARBITRATION_THRESHOLD` | Порог REJECTED-циклов до подключения пользователя |
-| `MAX_VALIDATION_RETRIES` | Абсолютный лимит циклов, защита от петли |
-| `DEBUG_CONTENT_PREVIEW_CHARS` | Длина превью контента в отладочном выводе |
+```text
+NODE_INPUT_ANALYSIS
+NODE_METADATA_LOOKUP
+NODE_REQUEST_CLASSIFICATION
+NODE_CLARIFICATION_INTERRUPT
+NODE_CANDIDATE_LAYER_RESOLUTION
+NODE_FINAL_PARAMETER_VALIDATION
+NODE_PREVIEW
+NODE_PROMPT_CONTEXT_PREPARATION
+NODE_CANDIDATE_TEXT_GENERATOR
+NODE_TOPIC_DEDUPLICATOR
+NODE_SCORER
+NODE_RANKER
+NODE_CANDIDATE_VALIDATOR
+NODE_CANDIDATE_REFINER
+NODE_APPROVED_TEXT_SELECTOR
+NODE_SHORTAGE_FALLBACK_INTERRUPT
+```
 
-Подробная инвентаризация магических значений по коду, промптам и провайдерам находится в `docs/02_ENGINEERING/CONFIGURATION_CONSTANTS.md`.
+### 3.2 Graph overview
 
----
+```text
+START
+  -> input_analysis
+  -> metadata_lookup
+  -> request_classification
+      complete
+        -> candidate_layer_resolution
+      incomplete / ambiguous / empty / contradictory / unsupported hard requirement
+        -> clarification_interrupt
+        -> input_analysis
+      stop
+        -> END
 
-## 8. Технический долг и точки расширения
+candidate_layer_resolution
+  -> final_parameter_validation
+      pass
+        -> preview
+      fail
+        -> request_classification
+      stop
+        -> END
 
-### Известный технический долг
+preview
+  -> prompt_context_preparation
+  -> candidate_text_generator
+  -> topic_deduplicator
+  -> scorer
+  -> ranker
+  -> candidate_validator
+      accepted
+        -> approved_text_selector? / next candidate
+      needs_revision
+        -> candidate_refiner
+        -> candidate_validator
+      rejected
+        -> next candidate
+      enough_approved
+        -> approved_text_selector
+      queue_exhausted
+        -> approved_text_selector
 
-1. **Парсинг JSON через копипасту.** Частично вынесен в `parse_llm_json`, но местами ещё встречается `response_raw.replace("```json", "").replace("```", "").strip()`. Доводим до единого хелпера.
-2. **Изменяемые дефолты в Pydantic-моделях** (`dict = {}`, `List[dict] = []`). Не критично в pydantic v2, но архитектурно неаккуратно.
-3. **`StoryItem.retry_count`** оставлен в схеме, но больше не используется как раньше (заменён на `validation_cycles` уровня сессии).
-4. **`current_node` как строка.** Поле осталось от старой стейтмашины, сейчас выполняет роль информационного маркера прогресса. Стоит формализовать множество допустимых значений (например, `Literal` или enum), чтобы не плодить «магические» строки.
-5. **Дублирование логики "если failed — иди в END"** в нескольких routing-функциях. Можно вынести в общий хелпер.
+approved_text_selector
+  -> END if enough
+  -> shortage_fallback_interrupt? if shortage HITL enabled
+  -> END if shortage HITL disabled
+```
 
-### Запланированные расширения
+### 3.3 Stage 1 nodes
 
-1. **Валидация и редактура текстов** (после генерации, перед согласованием с пользователем). Будет использовать тот же паттерн `validator → reviewer → refiner`, что и для плана, и добавится как поднабор нод между `text_generation` и `user_confirmation`. Потребует новых промптов: `TEXT_VALIDATOR_*.md`, `TEXT_REFINER_*.md`. Логика арбитража и счётчик переиспользуются.
-2. **Асинхронная генерация картинок.** `asyncio.gather` для пакетной отрисовки. Делается после стабилизации текущей логики.
-3. **JSON-база знаний** для подмешивания фактов о популярных темах (лягушки, ёжики, белки и т.п.) в промпты валидатора и редактора. Альтернатива классическому RAG для предсказуемой предметной области.
-4. **Видео-провайдер** рядом с image-провайдером.
-5. **Загрузка фото ребёнка** как референса персонажа. Большая отдельная фича с юридическими и техническими нюансами.
-6. **Долгосрочный checkpointer.** Сейчас `MemorySaver` живёт в рамках процесса — между запусками `--session <id>` сессия восстанавливается из `JSONStorage`. Для более точной паузы внутри сложных interrupt-сценариев между процессами можно подключить персистентный checkpointer (SQLite/Postgres).  
+#### `input_analysis`
 
----
+Type: LLM.
 
-## 9. Соглашения и инварианты
+Purpose:
 
-Список инвариантов, которые должны соблюдаться в любой момент:
+- interpret raw user input and resume answers;
+- extract candidate generation parameters;
+- apply explicit current request priority over defaults/context;
+- separate hard details from soft preferences;
+- fill/update `normalized_request`;
+- fill/update `interpretation_state.confidence`;
+- detect preliminary ambiguity or missing fields.
 
-1. **`approved_indices` ⊆ ключи `approved_plan_items`** — если индекс одобрен, для него есть данные в чистовике.
-2. **`validation_cycles >= 0`** всегда. Сброс в 0 — только при `plan_approved` или форсированном одобрении в арбитраже.
-3. **`validation_cycles <= MAX_VALIDATION_RETRIES`** иначе сессия идёт в `failed`.
-4. **`session.user_feedback` обнуляется** после использования (в конце цикла рефайна).
-5. **`current_node == "failed"`** — терминальное состояние, граф уходит в `END`, переходов из него нет.
-6. **`session.is_completed == True`** — флаг ставится только после успешной генерации картинок.
-7. **`session.full_plan_items[i]` всегда актуален** для всех `i in range(len(series_plan))`.
-8. **`GraphState["user_input"]` обнуляется** нодой после прочтения, чтобы не «протекал» в следующие итерации.
+Inputs:
 
+- `session.request.raw_text` or equivalent initial input;
+- `session.user_feedback` / resume payload if present;
+- `current_config`;
+- `user_context`;
+- prompt metadata summaries if available from prior iteration.
 
-## 11. Целевое представление пайплайна
+Outputs:
 
-Раздел описывает **планируемую эволюцию графа** в сторону продуктового видения, изложенного в `PRODUCT_VISION.md`. Здесь — только техническая сторона: какие ноды добавляются, как меняются существующие, как организована файловая иерархия промптов.
+- draft `normalized_request`;
+- `interpretation_state.analysis_summary`;
+- `interpretation_state.confidence`;
+- `interpretation_state.detected_issues`;
+- cleared transient resume value.
 
-Продуктовый смысл изменений (зачем нужны режим полезности, подстили, персонажи) — см. `PRODUCT_VISION.md`.
+Правила:
 
-### 11.1 Новые ноды-обогатители
+- `normalized_request` describes the generation task only.
+- Do not write `preview_text` here.
+- Do not finalize prompt layers here.
+- If a resume answer is received, re-analyze the whole updated interpretation.
 
-Между **Idea Sampler** и **Plan Validator** (или параллельно с Series Planner — финальное место определяется при разработке) появляется блок нод, обогащающих контекст генерации деталями из запроса пользователя.
+#### `metadata_lookup`
 
-| Нода | Тип | Назначение |
-|---|---|---|
-| `NODE_STYLE_DETECTOR` | 🤖 LLM | Анализирует `topic` пользователя, выделяет упоминания подстилей («русско-народная», «Чуковский», «мифы Греции») |
-| `NODE_CHARACTER_DETECTOR` | 🤖 LLM | Анализирует `topic`, выделяет упоминания персонажей и значимых деталей (блоха, зима, приключения) |
-| `NODE_PROMPT_ENRICHER` | ⚙️ Детерминированный | Берёт результаты детекторов, ищет совпадения в базе знаний (см. §11.3), подмешивает найденные слои к базовому промпту |
+Type: deterministic with optional LLM-assisted disambiguation.
 
-**Принцип работы:**
-- Детекторы заполняют новые поля в `SessionState`: `detected_substyle`, `detected_characters`, `detected_details`.
-- Енричер на основе этих полей собирает финальный промпт.
-- Если совпадений в базе нет — енричер сохраняет упоминание детали в контексте, но подмешивает только базовый слой.
+Purpose:
 
-**Принцип «мягкой деградации**: ни одна из этих нод не может перевести сессию в `failed`. Их отсутствие или ошибка означает, что генерация проходит на базовых промптах.
+- query `PromptRegistry` metadata index;
+- match exact ids/names/aliases;
+- check `applies_to`;
+- identify candidate fallback layers;
+- identify unresolved details;
+- identify unsupported hard requirements.
 
-### 11.2 Расширение арбитража конфигурации
+Outputs:
 
-Сейчас нода `config_arbitration` срабатывает только при несоответствии `truth_mode` и темы.
+- `interpretation_state.lookup_hints`;
+- draft `prompt_context` candidates;
+- per-field lookup confidence.
 
-**Целевое поведение:** срабатывает при несоответствии **любого** из четырёх измерений настроек контексту запроса:
+Rules:
 
-- `truth_mode` (как сейчас)
-- `utility_mode` (новое измерение, см. §11.4)
-- `text_style` / подстиль (новое)
-- возрастная градация (новое, см. §11.5)
+- Read YAML metadata only.
+- Do not load full prompt bodies.
+- Do not produce final execution context.
+- Do not promise unsupported layers.
 
-**Структура payload interrupt** расширяется:
+#### `request_classification`
 
-```python
+Type: deterministic/LLM-assisted.
+
+Purpose:
+
+Classify current request state as one of:
+
+```text
+complete
+needs_clarification
+empty_or_meaningless
+contradictory
+unsupported_hard_requirement
+stop
+```
+
+Outputs:
+
+- `interpretation_state.classification`;
+- `interpretation_state.requires_clarification`;
+- `interpretation_state.clarification_reason`;
+- `interpretation_state.clarification_options`.
+
+Rules:
+
+- Classification uses analysis + metadata lookup + confidence.
+- Missing base parameters can be resolved by safe defaults only if the default is explicit and explainable.
+- If there is no meaningful theme after clarification limit, route to `stop`.
+
+#### `clarification_interrupt`
+
+Type: LangGraph interrupt.
+
+Purpose:
+
+- ask user for missing/ambiguous/contradictory/unsupported choices;
+- explain product for empty input;
+- offer starter variants when useful.
+
+Payload shape:
+
+```json
 {
-    "type": "config_arbitration",
-    "mismatches": [
-        {"setting": "truth_mode", "current": "Правда", "suggested": "Сказка", "reason": "..."},
-        {"setting": "substyle", "current": None, "suggested": "Чуковский", "reason": "..."},
-        # ...
-    ]
+  "type": "request_clarification",
+  "reason": "ambiguous_subject",
+  "message": "Нужно уточнить...",
+  "options": [
+    {
+      "id": "opt_1",
+      "label": "...",
+      "normalized_patch": {}
+    }
+  ],
+  "freeform_allowed": true,
+  "attempt": 1,
+  "max_attempts": 3
 }
 ```
 
-**Resume value** также расширяется — пользователь может частично принять предложения (например, поменять только `truth_mode`, но оставить остальное).
+Resume value:
 
-### 11.3 База знаний промптов (файловая иерархия)
-
-База знаний — **обычная файловая структура**. Никаких векторных БД на старте, никакого RAG. Это даёт:
-- Предсказуемость (что положили — то и нашлось).
-- Прозрачность для отладки.
-- Простоту добавления нового контента — просто положить файл в нужную папку.
-
-**Планируемая структура:**
-
-```
-docs/03_PROMPTS/
-├── text/
-│   ├── styles/
-│   │   ├── TRUTH/
-│   │   │   ├── BASE.md
-│   │   │   ├── ENCYCLOPEDIC.md
-│   │   │   ├── NATURALISTIC.md
-│   │   │   └── ...
-│   │   ├── MYTH/
-│   │   │   ├── BASE.md
-│   │   │   ├── GREEK.md
-│   │   │   ├── ROMAN.md
-│   │   │   └── ...
-│   │   └── FAIRY_TALE/
-│   │       ├── BASE.md
-│   │       ├── RUSSIAN_FOLK.md
-│   │       ├── SCANDINAVIAN.md
-│   │       ├── CHUKOVSKY.md
-│   │       └── ...
-│   │
-│   ├── characters/
-│   │   ├── TRUTH/
-│   │   │   ├── animals/{FOX, HEDGEHOG, FROG, ...}.md
-│   │   │   └── humans/...
-│   │   ├── MYTH/
-│   │   │   ├── gods/{ZEUS, ATHENA, ...}.md
-│   │   │   └── heroes/{HERCULES, ...}.md
-│   │   └── FAIRY_TALE/
-│   │       ├── russian_folk/{KOLOBOK, IVAN, ...}.md
-│   │       ├── chukovsky/{MUKHA_TSOKOTUKHA, BARMALEY, ...}.md
-│   │       └── ...
-│   │
-│   ├── utility/
-│   │   ├── TEACHING/{POTTY, ROAD, CLEANING, ...}.md
-│   │   ├── NARRATIVE/BASE.md
-│   │   └── ENGLISH/{LEVEL_1, LEVEL_2, ...}.md
-│   │
-│   └── ages/
-│       ├── AGE_3.md
-│       ├── AGE_3_5.md
-│       ├── AGE_4.md
-│       ├── AGE_4_5.md
-│       └── AGE_5.md
-│
-└── image/  (как сейчас)
+```json
+{
+  "selected_option_id": "opt_1",
+  "freeform_text": null
+}
 ```
 
-**Логика поиска (упрощённо):**
+Rules:
 
-```python
-def find_substyle(truth_mode: str, detected_substyle: str | None) -> str:
-    base_path = f"text/styles/{truth_mode}/BASE.md"
-    if detected_substyle is None:
-        return load(base_path)
-    
-    candidate = f"text/styles/{truth_mode}/{detected_substyle}.md"
-    if exists(candidate):
-        return load(base_path) + load(candidate)
-    
-    # Mатчер: ищет ближайшее по семантике (можно через LLM, можно через простое сравнение строк на старте)
-    nearest = find_nearest(truth_mode, detected_substyle)
-    if nearest:
-        return load(base_path) + load(nearest)
-    
-    return load(base_path)  # мягкая деградация
+- Increment `interpretation_state.clarification_attempts`.
+- Persist session before interrupt when possible.
+- After resume, route to `input_analysis`, not to validation.
+- A selected option is input for re-analysis, not a final patch blindly applied.
+
+#### `candidate_layer_resolution`
+
+Type: deterministic/LLM-assisted.
+
+Purpose:
+
+- convert lookup candidates into final executable layer decisions;
+- select exact layers where available;
+- select fallback layers where acceptable;
+- store unresolved details as freeform context;
+- ensure preview will not promise unsupported behavior.
+
+Outputs:
+
+- `normalized_request.prompt_context`;
+- session-level `prompt_context`;
+- `interpretation_state.layer_resolution_summary`.
+
+Rules:
+
+- The canonical layer id is stable UPPER_SNAKE `id`.
+- File path is stored separately in `source`.
+- Fallback decisions include `requested`, `fallback_layer_id`, `source`, `reason`.
+- Hard unsupported requirements must route back to clarification or stop.
+
+#### `final_parameter_validation`
+
+Type: deterministic/LLM-assisted.
+
+Purpose:
+
+Verify that `normalized_request` is complete, consistent and executable.
+
+Must check:
+
+- base required fields;
+- supported enum values;
+- `subjects`;
+- `subject_continuity_policy`;
+- `character_profile` when needed;
+- hard details;
+- prompt context availability;
+- fallback acceptability;
+- safety/age/truth-mode contradictions at parameter level.
+
+Outputs:
+
+- `interpretation_state.validation_result`.
+
+Routes:
+
+- `pass` -> `preview`;
+- `fail_reclassify` -> `request_classification`;
+- `stop` -> `END`.
+
+#### `preview`
+
+Type: deterministic/LLM-assisted.
+
+Purpose:
+
+Create user-facing summary of executable interpretation.
+
+Outputs:
+
+- `preview_state.preview_text`;
+- `preview_state.shown_to_user`;
+- optional `preview_state.approved_implicitly = true`.
+
+Rules:
+
+- Preview is based on final validated parameters and resolved/fallback prompt context.
+- Preview must not mention unsupported styling as guaranteed.
+- In MVP, preview does not require another user confirmation unless product later requests it.
+
+#### `prompt_context_preparation`
+
+Type: deterministic.
+
+Purpose:
+
+- freeze execution-level `prompt_context`;
+- prepare Stage 2 context references;
+- ensure stage prompts can be composed without changing normalized parameters.
+
+Outputs:
+
+- `prompt_context`;
+- initial `stage_prompt_context` refs/summaries.
+
+Rules:
+
+- Do not change `normalized_request`.
+- Do not load all prompt bodies eagerly unless required.
+- Store ids/hashes/summaries in state, not huge full prompts.
+
+### 3.4 Stage 2 nodes
+
+#### `candidate_text_generator`
+
+Type: LLM.
+
+Policy:
+
+```text
+candidate_count_default = 20
 ```
 
-**В будущем**, если иерархия разрастётся, поиск может переехать на векторное хранилище (FAISS/Chroma) — но интерфейс `find_*` останется тем же.
+Purpose:
 
-### 11.4 Новое измерение настроек: `utility_mode`
+Generate a pool of text candidates larger than `output_count`.
 
-В `GenerationRequest` добавляется обязательное поле `utility_mode: UtilityMode`:
+Inputs:
 
-```python
-class UtilityMode(str, Enum):
-    TEACHING = "Поучительный"
-    NARRATIVE = "Повествовательный"
-    ENGLISH = "Английский"
+- `normalized_request`;
+- `prompt_context`;
+- generator `stage_prompt_context`;
+- `candidate_count`.
+
+Candidate output shape:
+
+```json
+{
+  "candidate_id": "c01",
+  "theme": "ёжик ищет сухие листья для зимнего укрытия",
+  "text": "Короткий текст...",
+  "questions": ["Что ёжик искал?", "Почему сухие листья полезны?"],
+  "utility_points": [],
+  "used_subjects": ["hedgehog"],
+  "expected_visual_idea": "ёжик рядом с сухими листьями на снегу",
+  "used_context": {
+    "resolved_layers": [],
+    "fallback_layers": [],
+    "unresolved_details": []
+  },
+  "status": "draft"
+}
 ```
 
-**Влияние на пайплайн:**
+Rules:
 
-- **Series Planner** учитывает `utility_mode` при генерации идей:
-  - `TEACHING` → идеи строятся вокруг полезного навыка.
-  - `NARRATIVE` → идеи свободные, без цели «научить».
-  - `ENGLISH` → идеи привязаны к словарным темам (animals, family, colors).
-- **Plan Validator** получает соответствующий профиль валидации.
-- **Text Generation** подмешивает слой `utility/{MODE}/*.md`.
+- Every candidate has a unique `theme`.
+- Themes should be semantically different, not only worded differently.
+- Respect `subject_continuity_policy`.
+- Preserve `main_subject`, required subjects and `character_profile`.
+- Use `visual_preferences` only indirectly, if at all, for `expected_visual_idea`.
 
-Маппинг режим → промпт-файл аналогичен текущему `_map_truth_mode_to_suffix` в `PromptBuilder`.
+#### `topic_deduplicator`
 
-**Режим `ENGLISH` требует доп. проработки** — возможно потребует отдельной ветки графа (свои промпты, своя валидация, возможно своя градация уровней вместо возрастной).
+Type: LLM/deterministic.
 
-### 11.5 Возрастные градации
+Purpose:
 
-В `GenerationRequest` добавляется обязательное поле `age: AgeLevel`:
+- detect duplicate themes;
+- mark duplicate candidates;
+- preserve debug history.
 
-```python
-class AgeLevel(str, Enum):
-    AGE_3 = "3"
-    AGE_3_5 = "3.5"
-    AGE_4 = "4"
-    AGE_4_5 = "4.5"
-    AGE_5 = "5"
+Output shape:
+
+```json
+{
+  "deduplication_results": [
+    {
+      "candidate_id": "c01",
+      "is_duplicate": false,
+      "duplicate_of": null,
+      "reason": null
+    }
+  ]
+}
 ```
 
-**Влияние на пайплайн:**
+Rules:
 
-- В **Text Generation** подмешивается слой `ages/AGE_{X}.md` — он влияет на длину фраз, словарь, сложность сюжета.
-- **Idea Scoring**: возрастной фильтр становится точнее. То, что подходит для 3 лет, может быть слишком простым для 5, и наоборот. `MIN_CHILD_INDEX` может стать функцией от возраста.
+- Severe duplicates are excluded from normal ranking.
+- Borderline duplicates can remain but receive lower novelty score.
+- `approved_texts` must not contain duplicate themes.
 
-### 11.6 Обновлённый поток (с учётом новых нод)
+#### `scorer`
 
-Принципиальная схема пайплайна после внедрения целевого представления:
+Type: LLM in MVP.
 
+Purpose:
+
+- apply hard gates;
+- assign score components;
+- calculate or request `total_score`.
+
+Output shape:
+
+```json
+{
+  "scores": [
+    {
+      "candidate_id": "c01",
+      "hard_gates": {
+        "safety": "pass",
+        "truth_fit": "pass",
+        "age_fit": "pass",
+        "subject_continuity": "pass",
+        "hard_details": "pass",
+        "character_consistency": "pass"
+      },
+      "score_components": {
+        "child_interest": 0.84,
+        "age_fit": 0.91,
+        "utility_fit": 0.78,
+        "style_fit": 0.80,
+        "novelty": 0.75,
+        "visual_potential": 0.70
+      },
+      "total_score": 0.80
+    }
+  ]
+}
 ```
-Тема + Конфигурация (4 измерения + возраст)
-        │
-        ▼
-[1] Safety Gate
-        │
-        ▼
-[2] Config Match  ──mismatch──▶ [Config Arbitration (расширенный)]
-        │                              │
-        ▼                              │
-[2.5] Style Detector       ◀───────────┘
-        │
-        ▼
-[2.6] Character Detector
-        │
-        ▼
-[3] Series Planner (truth + utility + style)
-        │
-        ▼
-[4] Idea Scoring (с учётом возраста)
-        │
-        ▼
-[5] Score Normalize
-        │
-        ▼
-[6] Idea Sampler
-        │
-        ▼
-[6.5] Prompt Enricher (подмешивает подстили, персонажей, детали)
-        │
-        ▼
-[7..12] далее как сейчас
+
+Rules:
+
+- Critical hard gate failure prevents approval.
+- Total score is meaningful only for candidates that pass critical gates.
+- MVP may use one agent for all components.
+- Schema remains multi-component for future split agents.
+
+#### `ranker`
+
+Type: deterministic.
+
+Purpose:
+
+- create validation queue.
+
+Ranking policy:
+
+1. candidates with critical hard gates passed;
+2. higher `total_score`;
+3. higher novelty/theme diversity;
+4. higher visual potential as tie-breaker.
+
+Output:
+
+```json
+{
+  "ranked_candidates": [
+    {
+      "candidate_id": "c01",
+      "rank": 1,
+      "total_score": 0.80,
+      "hard_gates_passed": true
+    }
+  ]
+}
 ```
 
-> 💡 Точное место Style/Character Detector (до Series Planner или после Idea Sampler) определяется на этапе разработки. Возможно, детектирование происходит **один раз сразу после Safety Gate**, а результаты используются всеми последующими нодами через поля `SessionState`.
+#### `candidate_validator`
 
-### 11.7 Влияние на `SessionState`
+Type: LLM.
 
-Новые поля, которые потребуется добавить:
+Purpose:
 
-| Поле | Тип | Назначение |
-|---|---|---|
-| `detected_substyle` | Optional[str] | Что детектор стиля выделил из запроса |
-| `detected_characters` | List[str] | Персонажи, выделенные из запроса |
-| `detected_details` | List[str] | Прочие значимые детали (сезон, жанр, мотив) |
-| `enriched_prompt_layers` | dict | Какие конкретно файлы из базы знаний были подмешаны (для отладки и Langfuse) |
+Validate one candidate version from ranked queue.
 
-Возрастная градация и `utility_mode` живут в `GenerationRequest`, как и текущие настройки.
+Checks:
 
-### 11.8 Расширяемость и обратная совместимость
+- safety;
+- target age;
+- truth mode;
+- utility mode;
+- style/substyle fit;
+- subject continuity;
+- required subjects;
+- hard details;
+- character profile;
+- questions;
+- output format.
 
-**Принципы расширения:**
+Output:
 
-1. **Новые подстили / персонажи / темы — без изменений кода.** Достаточно положить новый `.md` файл в соответствующую папку.
-2. **Новые измерения настроек — через расширение `GenerationRequest` и `config_arbitration`.** Код графа меняется минимально.
-3. **Старые сессии должны грузиться.** При добавлении новых полей в `SessionState` они должны иметь дефолты (Pydantic), чтобы JSON-сессии, созданные до изменений, не ломали загрузку.
+```json
+{
+  "candidate_id": "c02",
+  "version_id": "c02_v1",
+  "status": "needs_revision",
+  "issues": [
+    {
+      "type": "truth_mode_violation",
+      "severity": "major",
+      "description": "В режиме TRUTH ёжик начал разговаривать как человек."
+    }
+  ],
+  "required_fixes": [
+    "Убрать человеческую речь ёжика или перевести её в наблюдение ребёнка."
+  ],
+  "validation_summary": "Нужно исправить нарушение режима правды."
+}
+```
 
-### 11.9 Технический план перехода
+Statuses:
 
-Эволюция к целевому представлению — **итеративная**, не одним коммитом. Приоритеты:
+```text
+accepted
+needs_revision
+rejected
+```
 
-1. **`utility_mode` как третье обязательное измерение.** Минимальное изменение — расширить `GenerationRequest`, добавить три новых базовых промпта, прокинуть через PromptBuilder.
-2. **Возрастные градации.** Аналогично — расширение `GenerationRequest` и добавление пяти возрастных промптов.
-3. **Style Detector + Prompt Enricher для подстилей.** Сначала на одном-двух подстилях (например, «русско-народная» и «Чуковский»).
-4. **Character Detector + расширение базы знаний персонажами.**
-5. **Расширение `config_arbitration` на все измерения.**
-6. **Режим `ENGLISH`** — отдельной фазой, требует продуктовой проработки.
+Rules:
 
-Каждый шаг можно выкатывать независимо. Граф LangGraph остаётся обратно совместимым: новые ноды добавляются, старые не ломаются.
+- Валидировать кандидатов последовательно по ranking.
+- Останавливать validation loop, когда accepted count достигает `output_count`.
+- Увеличивать validation attempt counter per candidate.
+- Если status = `accepted`, записывать принятую версию кандидата в `validated_candidate_versions`.
+- `validation_results` хранит историю попыток; `validated_candidate_versions` хранит версии кандидатов, пригодные для финального выбора.
+
+#### `candidate_refiner`
+
+Type: LLM.
+
+Purpose:
+
+Repair one candidate according to validator issues.
+
+Output:
+
+```json
+{
+  "candidate_id": "c02",
+  "version_id": "c02_v2",
+  "theme": "исходная тема остаётся прежней",
+  "text": "Исправленный текст...",
+  "questions": ["..."],
+  "changes_summary": "Убрана человеческая речь, сохранена тема зимнего укрытия.",
+  "status": "revised"
+}
+```
+
+Immutable fields:
+
+- `theme`;
+- `main_subject`;
+- required subjects;
+- `character_profile`;
+- `subject_continuity_policy`;
+- `content_format`;
+- `truth_mode`;
+- `utility_mode`;
+- `target_age`;
+- hard details.
+
+Правила:
+
+- Максимум refinement attempts per candidate в MVP: `2`.
+- Refiner не должен молча менять immutable fields.
+- Если исправление невозможно без изменения immutable fields, stage возвращает issue/failure и граф переходит к следующему кандидату.
+- Исправленная версия не утверждается самим refiner. Она должна вернуться в `candidate_validator`; только accepted validation result может добавить её в `validated_candidate_versions`.
+
+#### `approved_text_selector`
+
+Type: deterministic/LLM-assisted.
+
+Purpose:
+
+- choose final accepted versions;
+- write `approved_texts`;
+- write `shortage`;
+- optionally prepare `safe_fallback_candidates`.
+
+Inputs:
+
+- `ranked_candidates`;
+- `validated_candidate_versions`;
+- `validation_results`;
+- `normalized_request.output_count`.
+
+Правила:
+
+- Выбирать из `validated_candidate_versions`, а не из исходных drafts.
+- Если кандидат проходил refinement, использовать latest accepted validated version.
+- Никогда не включать кандидатов с critical hard gate failures.
+- Не включать duplicate themes.
+- `candidate_texts` и `ranked_candidates` не являются допустимыми источниками финального текста для selector; это только context и ordering inputs.
+
+Approved text shape:
+
+```json
+{
+  "candidate_id": "c01",
+  "version_id": "c01_v1",
+  "theme": "ёжик ищет сухие листья",
+  "text": "Финальный текст...",
+  "questions": ["..."],
+  "score": 0.80,
+  "validation_status": "accepted",
+  "validation_summary": "Возраст, truth_mode, subject continuity и safety соблюдены.",
+  "expected_visual_idea": "ёжик рядом с сухими листьями",
+  "used_context": {
+    "resolved_layers": [],
+    "fallback_layers": [],
+    "unresolved_details": []
+  },
+  "trace_refs": {}
+}
+```
+
+Shortage shape:
+
+```json
+{
+  "requested": 5,
+  "approved": 3,
+  "status": "not_enough_valid_candidates",
+  "reason": "ranked queue exhausted before output_count"
+}
+```
+
+#### `shortage_fallback_interrupt`
+
+Type: optional LangGraph interrupt.
+
+MVP may skip this interrupt and finish with shortage. If enabled, options are:
+
+- accept fewer approved texts;
+- accept safe fallback candidates with known issues;
+- retry candidate generation;
+- stop.
+
+`safe_fallback_candidates` exist only for shortage path and must not be mixed into `approved_texts` without explicit selector/user decision.
+
+---
+
+## 4. Routing Functions
+
+Routing lives in `src/core/graph/routing.py`.
+
+Recommended functions:
+
+```text
+route_after_request_classification
+route_after_final_parameter_validation
+route_after_candidate_validator
+route_after_candidate_refiner
+route_after_approved_text_selector
+route_after_shortage_fallback
+entry_point_from_session
+```
+
+### 4.1 Classification routing
+
+```text
+complete -> candidate_layer_resolution
+needs_clarification -> clarification_interrupt
+empty_or_meaningless -> clarification_interrupt
+contradictory -> clarification_interrupt
+unsupported_hard_requirement -> clarification_interrupt
+stop -> END
+```
+
+After `clarification_interrupt`, the graph routes to `input_analysis`.
+
+### 4.2 Validation loop routing
+
+`candidate_validator` routing uses:
+
+- accepted count;
+- current candidate id;
+- candidate status;
+- refinement attempts;
+- ranked queue pointer;
+- output count.
+
+Routing:
+
+```text
+accepted and accepted_count >= output_count -> approved_text_selector
+accepted and accepted_count < output_count -> next ranked candidate validator
+needs_revision and attempts_left -> candidate_refiner
+needs_revision and no_attempts_left -> next ranked candidate validator
+rejected -> next ranked candidate validator
+queue_exhausted -> approved_text_selector
+```
+
+Implementation can represent "next ranked candidate validator" by updating loop cursor in state and returning to the same `candidate_validator` node.
+
+---
+
+## 5. SessionState Contract
+
+### 5.1 Top-level fields
+
+`SessionState` must include:
+
+```text
+session_id
+request
+current_node
+is_completed
+normalized_request
+interpretation_state
+preview_state
+prompt_context
+stage_prompt_context
+candidate_texts
+deduplication_results
+scores
+ranked_candidates
+validation_results
+validated_candidate_versions
+approved_texts
+shortage
+safe_fallback_candidates
+pipeline_counters
+trace_refs
+```
+
+Old fields from the previous orchestration model should not be part of the new business flow. If kept temporarily for CLI compatibility, they must be marked as deprecated and not read by new nodes.
+
+### 5.2 `request`
+
+Minimum input request:
+
+```json
+{
+  "raw_text": "Сделай 5 коротких натуралистичных историй про ёжика зимой в лесу для ребёнка 3 лет.",
+  "current_config": {
+    "truth_mode": "TRUTH",
+    "utility_mode": "NARRATIVE",
+    "target_age": "3",
+    "text_style_base": "calm",
+    "image_style": "cartoon"
+  },
+  "user_context": {
+    "available": false
+  }
+}
+```
+
+`request` is raw/user-facing input. Resolved execution fields live in `normalized_request`.
+
+Старая семантика `fast/check` не является частью нового контракта оркестрации. В текущем scope нет режима, который переводит pipeline к image generation. Если позже понадобится подтверждение preview или approved texts, это должно быть отдельной UI/HITL policy, а не возвратом старого `fast/check`.
+
+### 5.3 `normalized_request`
+
+`normalized_request` describes the generation task:
+
+```json
+{
+  "content_format": "story",
+  "truth_mode": "TRUTH",
+  "utility_mode": "NARRATIVE",
+  "target_age": "3",
+  "output_count": 5,
+  "audience_language": "ru",
+  "result_language": "ru",
+  "current_config": {
+    "truth_mode": "TRUTH",
+    "utility_mode": "NARRATIVE",
+    "target_age": "3",
+    "text_style_base": "calm",
+    "image_style": "cartoon"
+  },
+  "main_subject": "ёжик",
+  "subjects": [
+    {
+      "id": "hedgehog",
+      "label": "ёжик",
+      "type": "animal",
+      "role": "main",
+      "is_character": false,
+      "base_species": "hedgehog",
+      "resolved_layer_id": "TRUTH_ANIMAL_HEDGEHOG",
+      "unresolved_detail": null
+    }
+  ],
+  "setting": {
+    "place": "лес",
+    "season": "зима",
+    "time": null
+  },
+  "text_style_base": "calm",
+  "substyle": "naturalistic",
+  "character_profile": null,
+  "subject_continuity_policy": {
+    "mode": "single_subject_all_items",
+    "required_subjects": ["hedgehog"],
+    "coverage": "item_level",
+    "allowed_distribution": "all_items",
+    "can_mix_subjects_in_one_item": true,
+    "can_introduce_new_subjects": true,
+    "can_replace_required_subjects": false
+  },
+  "hard_details": [
+    "главный объект — ёжик",
+    "действие происходит зимой в лесу",
+    "истории должны быть реалистичными"
+  ],
+  "soft_preferences": [
+    "спокойный тон",
+    "простые фразы"
+  ],
+  "user_context": {
+    "available": false,
+    "source": null,
+    "defaults": {},
+    "preferences": {},
+    "avoid": [],
+    "recent_topics": []
+  },
+  "visual_preferences": {
+    "image_style": "cartoon",
+    "target_device": null,
+    "visual_output_type": "single_image_card"
+  },
+  "prompt_context": {
+    "resolved_layers": [
+      {
+        "type": "content_format",
+        "id": "CONTENT_FORMAT_STORY",
+        "source": "content_formats/story/BASE.md",
+        "reason": "content_format=story"
+      },
+      {
+        "type": "truth_mode",
+        "id": "TRUTH_BASE",
+        "source": "truth_modes/TRUTH/BASE.md",
+        "reason": "truth_mode=TRUTH"
+      },
+      {
+        "type": "age",
+        "id": "AGE_3",
+        "source": "ages/3/BASE.md",
+        "reason": "target_age=3"
+      },
+      {
+        "type": "entity",
+        "id": "TRUTH_ANIMAL_HEDGEHOG",
+        "source": "truth_modes/TRUTH/characters/animals/HEDGEHOG.md",
+        "reason": "main_subject=ёжик"
+      }
+    ],
+    "fallback_layers": [],
+    "unresolved_details": []
+  }
+}
+```
+
+Rules:
+
+- `confidence`, `requires_clarification` and `preview_text` are not inside `normalized_request`.
+- `current_config` is a snapshot/default source, not Stage 2 execution source.
+- `user_context` is object-with-empty-state, not `null`.
+- `visual_preferences` are preserved for downstream but not used directly by text pipeline.
+
+### 5.4 `interpretation_state`
+
+```json
+{
+  "confidence": {
+    "content_format": 0.9,
+    "truth_mode": 0.85,
+    "utility_mode": 0.8,
+    "target_age": 0.95,
+    "main_subject": 0.95
+  },
+  "classification": "complete",
+  "requires_clarification": false,
+  "clarification_reason": null,
+  "clarification_options": [],
+  "clarification_attempts": 0,
+  "max_clarification_attempts": 3,
+  "lookup_hints": {},
+  "validation_result": {
+    "status": "pass",
+    "issues": []
+  }
+}
+```
+
+### 5.5 `preview_state`
+
+```json
+{
+  "preview_text": "Я подготовлю 5 спокойных правдивых историй про ёжика зимой в лесу для ребёнка 3 лет.",
+  "shown_to_user": true,
+  "approved_implicitly": true
+}
+```
+
+### 5.6 `prompt_context`
+
+```json
+{
+  "resolved_layers": [
+    {
+      "type": "entity",
+      "id": "TRUTH_ANIMAL_HEDGEHOG",
+      "source": "truth_modes/TRUTH/characters/animals/HEDGEHOG.md",
+      "reason": "main_subject=ёжик"
+    }
+  ],
+  "fallback_layers": [],
+  "unresolved_details": []
+}
+```
+
+Rules:
+
+- `id` is canonical stable UPPER_SNAKE.
+- `source` stores the prompt file path.
+- Missing narrow details can be stored as unresolved freeform context.
+
+### 5.7 `pipeline_counters`
+
+```json
+{
+  "clarification_attempts": 0,
+  "candidate_attempts": {
+    "c01": {
+      "validation_attempts": 1,
+      "refinement_attempts": 0
+    }
+  },
+  "current_rank_index": 0,
+  "accepted_count": 0
+}
+```
+
+---
+
+## 6. Prompt System
+
+### 6.1 Prompt file format
+
+Every prompt layer is one `.md` file:
+
+```markdown
+---
+id: TRUTH_ANIMAL_HEDGEHOG
+type: entity
+namespace: truth_modes/TRUTH/characters/animals
+name: Ёжик
+aliases:
+  - ёж
+  - ежик
+  - hedgehog
+applies_to:
+  content_formats: [story]
+  truth_modes: [TRUTH]
+  utility_modes: [NARRATIVE, TEACHING]
+  ages: ["3", "5"]
+short_description: Ёжик, его поведение, среда обитания и безопасные факты.
+constraints:
+  - Не приписывать ёжику человеческую речь в режиме TRUTH.
+fallback_priority: 80
+---
+
+# Назначение слоя
+
+...
+```
+
+Required metadata:
+
+- `id`;
+- `type`;
+- `namespace`;
+- `name`;
+- `aliases`;
+- `applies_to`;
+- `short_description`;
+- `constraints`.
+
+Optional metadata:
+
+- `user_description`;
+- `good_for`;
+- `bad_for`;
+- `fallback_priority`;
+- `requires_user_confirmation`;
+- `sample_text`;
+- `safety_notes`.
+
+### 6.2 PromptRegistry
+
+Responsibilities:
+
+- scan prompt directories;
+- parse YAML metadata;
+- validate required fields;
+- validate unique `id`;
+- store layer index by id/type/alias/applicability;
+- return metadata lookup candidates;
+- return execution lookup results;
+- cache parsed metadata by file hash or mtime.
+
+Lookup levels:
+
+1. exact match by id/name;
+2. alias match;
+3. fallback by applicability and priority;
+4. unresolved detail.
+
+### 6.3 Metadata lookup
+
+Used before preview.
+
+Purpose:
+
+- understand available modes/styles/substyles/entities;
+- avoid promising unsupported stylization;
+- identify fallback candidates;
+- decide whether user clarification is needed.
+
+It must not load full prompt bodies.
+
+### 6.4 Execution lookup
+
+Used after request is complete enough to execute.
+
+Output:
+
+```json
+{
+  "resolved_layers": [],
+  "fallback_layers": [],
+  "unresolved_details": []
+}
+```
+
+Execution lookup fixes what Stage 2 will use. It must not change the interpretation shown in preview.
+
+### 6.5 PromptComposer
+
+Responsibilities:
+
+- build stage-specific prompt context;
+- lazy-load prompt bodies when needed;
+- preserve layer ordering;
+- include hard constraints before soft preferences;
+- include unresolved details as freeform context, not guaranteed layer knowledge;
+- generate compact debug summaries and hashes.
+
+General layer priority:
+
+1. content format;
+2. truth mode;
+3. utility mode;
+4. target age;
+5. result language;
+6. style/substyle;
+7. entity/subject;
+8. hard details;
+9. soft preferences;
+10. unresolved details;
+11. stage-specific instructions;
+12. output contract.
+
+Stage context profiles:
+
+| Stage | Context |
+| --- | --- |
+| CandidateTextGenerator | Full creative context. |
+| TopicDeduplicator | Themes, subjects, continuity policy, similarity criteria. |
+| Scorer | Hard gates, score components, compact layer summaries. |
+| Validator | One candidate, constraints, output contract. |
+| Refiner | Candidate, validator issues, immutable fields, repair instructions. |
+| Ranker | Usually deterministic ranking policy. |
+| ApprovedTextSelector | Validated versions, validation results, output_count, shortage policy. |
+
+---
+
+## 7. Interrupts
+
+### 7.1 Request clarification
+
+Used for:
+
+- incomplete input;
+- ambiguous input;
+- low-confidence base fields;
+- several close fallback candidates;
+- user must choose between modes/styles/entities.
+
+After resume: route to `input_analysis`.
+
+### 7.2 Empty or meaningless input
+
+Used for:
+
+- empty input;
+- random characters;
+- meta-input that is not a generation request.
+
+Payload should include product explanation and starter variants. If user does not choose a variant or provide meaningful freeform text after attempt limit, route to `END`.
+
+### 7.3 Contradiction arbitration
+
+Used for:
+
+- hard detail conflicts with truth mode;
+- selected/default config conflicts with explicit user request;
+- age/safety constraints conflict with request.
+
+Payload should explain the contradiction and offer supported alternatives.
+
+After resume: route to `input_analysis`.
+
+### 7.4 Hard unsupported prompt requirement
+
+Used when:
+
+- requested prompt layer is unavailable;
+- fallback would materially change meaning;
+- unsupported style/entity is stated as mandatory.
+
+Payload should include:
+
+- unsupported requirement;
+- possible fallback layers;
+- unresolved detail option if allowed;
+- option to relax requirement or stop.
+
+After resume: route to `input_analysis`.
+
+### 7.5 Shortage fallback
+
+Optional in MVP.
+
+Used when:
+
+```text
+approved_texts.length < normalized_request.output_count
+```
+
+Options:
+
+- accept fewer approved texts;
+- accept safe fallback candidates;
+- retry candidate generation;
+- stop.
+
+---
+
+## 8. Persistence
+
+### 8.1 JSONStorage
+
+JSONStorage is the durable source of truth.
+
+Required behavior:
+
+- save session after every mutating node;
+- save before interrupt payload when possible;
+- save after resume handling;
+- store `approved_texts`;
+- store `shortage`;
+- store compact prompt refs, not necessarily full prompt bodies;
+- preserve enough state for process restart.
+
+### 8.2 MemorySaver
+
+MemorySaver stores in-process LangGraph interrupt state. It is not durable across process restarts.
+
+Between process restarts, recovery uses:
+
+- `SessionState`;
+- `current_node`;
+- pending HITL fields;
+- validation loop cursor;
+- JSONStorage.
+
+Persistent LangGraph checkpointer can be introduced later, but is not required for Stage 1-2 MVP.
+
+---
+
+## 9. Observability
+
+Every node should be traced as a separate Langfuse span.
+
+Root trace metadata:
+
+- `session_id`;
+- user id if available;
+- raw input;
+- normalized summary;
+- final status;
+- current node;
+- shortage status.
+
+Stage 1 span metadata:
+
+- classification;
+- confidence summary;
+- clarification reason;
+- clarification attempts;
+- selected option id/freeform marker;
+- resolved layer ids;
+- fallback layer ids;
+- unresolved details;
+- final validation status;
+- preview hash/text summary.
+
+Stage 2 span metadata:
+
+- candidate count requested/generated;
+- duplicate count;
+- hard gate failure counts;
+- score component summaries;
+- ranked candidate ids;
+- validation attempts;
+- refinement attempts;
+- approved count;
+- shortage reason.
+
+Prompt trace metadata:
+
+- layer ids;
+- source paths;
+- prompt hashes;
+- stage context hash;
+- model/provider;
+- token and cost metadata if available.
+
+Approved text `trace_refs`:
+
+```json
+{
+  "trace_id": "...",
+  "generator_span_id": "...",
+  "scorer_span_id": "...",
+  "validator_span_ids": [],
+  "refiner_span_ids": [],
+  "prompt_context_hash": "...",
+  "candidate_id": "c01",
+  "version_id": "c01_v1"
+}
+```
+
+---
+
+## 10. Implementation Order
+
+Recommended implementation order:
+
+1. Replace old `SessionState` orchestration fields with new models.
+2. Implement `PromptRegistry`.
+3. Implement `PromptComposer`.
+4. Implement Stage 1 nodes and routing.
+5. Implement CLI/API interrupt handlers for Stage 1.
+6. Implement Stage 2 candidate generation.
+7. Implement deduplication/scoring/ranking.
+8. Implement validation/refinement loop.
+9. Implement `ApprovedTextSelector` and shortage object.
+10. Connect seed prompt layers.
+11. Add golden scenario tests.
+12. Only after Stage 1-2 are stable, write separate Stage 3 visual pipeline spec.
+
+---
+
+## 11. Golden Scenario Acceptance
+
+At minimum, implementation must pass scenarios for:
+
+- правдивые истории про ёжика зимой для 3 лет;
+- сказочные истории про лису для 5 лет;
+- мифологическая мягкая история про солнце или ветер;
+- поучительная история про мытьё рук;
+- поучительная сказка про переход через дорогу;
+- fallback `PARROT` for `какаду` with unresolved detail;
+- multiple subjects with explicit `subject_continuity_policy`;
+- character request with `character_profile`;
+- empty/meaningless input;
+- contradiction `TRUTH` + fantastic hard detail;
+- unsupported hard style requirement;
+- refiner must not change theme/main subject/character profile;
+- selector must use validated candidate versions.
+
+Acceptance is behavioral, not snapshot text equality.
+
+---
+
+## 12. Completion Criteria
+
+The orchestrator implementation is complete when:
+
+- active graph starts at Stage 1 analysis;
+- all Stage 1 nodes persist state;
+- all clarification branches route back to analysis/classification;
+- `normalized_request` is separate from process metadata;
+- `PromptRegistry` validates metadata and stable ids;
+- `PromptComposer` creates stage-specific contexts;
+- Stage 2 generates candidate pool with default count 20;
+- duplicate themes are filtered or marked;
+- hard gates can exclude candidates before approval;
+- validation/refinement loop respects per-candidate counters;
+- refiner preserves immutable fields;
+- selector approves validated versions only;
+- final output is `approved_texts`;
+- shortage is explicit when output count is not met;
+- no image/animation node is part of current graph;
+- JSONStorage can restore meaningful progress;
+- Langfuse traces contain enough debug refs to inspect approved text decisions.
