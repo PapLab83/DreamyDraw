@@ -70,6 +70,7 @@ fallback_priority: 80
 | Поле | Смысл |
 | --- | --- |
 | `user_description` | Описание для пользовательских уточнений. |
+| `role` | Orchestration-смысл слоя внутри resolved context, если `type` недостаточно точен для lookup/composition. |
 | `good_for` | Когда слой особенно уместен. |
 | `bad_for` | Когда слой нежелателен или конфликтует с режимом. |
 | `fallback_priority` | Приоритет слоя как fallback-кандидата. |
@@ -77,6 +78,15 @@ fallback_priority: 80
 | `example_result_ids` | Ссылки на best-case examples для будущего UI. |
 | `sample_text` | Короткий пример результата, если нужен для UX. |
 | `safety_notes` | Особые ограничения безопасности. |
+
+`role` не заменяет `type`: `type` всегда остаётся значением из enum prompt layer types. `role` уточняет назначение слоя для оркестрации, например `content_format`, `utility_mode`, `utility_topic`, `audience_language`, `result_language`.
+
+В общем контракте `role` является optional, но конкретный seed inventory или prompt family может сделать его обязательным для слоёв, где без него lookup/composition становятся неоднозначными. Для текущего seed set `role` должен быть указан как минимум для:
+
+* `type = "format"`: `role = "content_format"`;
+* `type = "utility"`: `role = "utility_mode"` или `role = "utility_topic"`;
+* `type = "language"`: `role = "audience_language"` или `role = "result_language"`;
+* stage-related layers, если inventory различает их orchestration назначение через `role`.
 
 ---
 
