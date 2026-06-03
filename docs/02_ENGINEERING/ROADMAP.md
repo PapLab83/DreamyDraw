@@ -51,12 +51,12 @@
            + `parse_llm_json` не снимает markdown-обёртку
            + привести доументацию СПЕЦИФИКАЦИЯ ОРКЕСТРАТОРА в соответствии с кодом
            + зафиксировать некоторые основные положения из целевого представления продукта
-           - описать контракты
-                        - contract normalized params/state;
-                        - contract prompt file;
-                        - contract prompt lookup;
-                        - contract prompt composition;
-                        - contract stage-specific inputs/outputs; 
+           + описать контракты
+                        + contract normalized params/state;
+                        + contract prompt file;
+                        + contract prompt lookup;
+                        + contract prompt composition;
+                        + contract stage-specific inputs/outputs; 
            - зафиксировать golden scenarios
            - сформировать промпты в соответствии с контрактами
            - narrative stories: TRUTH / MYTH / FAIRY_TALE;
@@ -80,7 +80,7 @@
                         - проверить candidate texts;
                         - проверить scoring / validation / refiner;
                         - зафиксировать регрессии.
-           - Реализовать контракт `subjects / character_profile / subject_continuity_policy` из `TARGET_ORCHESTRATION_LOGIC.md` в Pydantic-схемах, prompt context, hard gates и refiner constraints второго этапа.
+           + Реализовать контракт `subjects / character_profile / subject_continuity_policy` из `TARGET_ORCHESTRATION_LOGIC.md` в Pydantic-схемах, prompt context, hard gates и refiner constraints второго этапа.
            + промпты про животных: 
                          + нужно ли животных сразу к персонажам относить (просто делить их на настоящие и сказочные и мифологические)
                          + базовый промпт для всех животных
