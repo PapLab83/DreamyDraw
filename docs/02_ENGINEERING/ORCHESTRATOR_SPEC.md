@@ -465,6 +465,15 @@ Outputs:
 
 - `interpretation_state.validation_result`.
 
+Persisted `interpretation_state.validation_result.status` values:
+
+```text
+not_started
+pass
+fail_reclassify
+stop
+```
+
 Routes:
 
 - `pass` -> `preview`;
@@ -930,6 +939,38 @@ Inputs:
 - `completed_with_shortage` является terminal status, но не success-equivalent к `completed_enough`; UI/API должны явно показывать shortage.
 - Safe fallback candidates нельзя включать без явной durable HITL fallback acceptance policy в `shortage.fallback_acceptance_policy`.
 
+Safe fallback eligibility:
+
+```text
+safe_fallback_candidate requires pass:
+  - safety
+  - age_fit
+  - truth_fit
+  - subject_continuity
+  - hard_details
+  - character_consistency when `character_profile` is present
+  - utility_goal when `utility_mode = TEACHING`
+
+safe_fallback_candidate may have known_issues:
+  - weaker style_fit
+  - lower novelty
+  - weaker utility expression when it is not safety-critical
+  - minor wording quality issues
+  - lower score than normal approved text
+```
+
+Правила:
+
+- Safe fallback не является normal approved text и не должен маскироваться под accepted validation result.
+- Для `utility_mode = TEACHING`, `utility_goal` failure является critical, если fallback может научить неверному, небезопасному или противоположному поведению.
+- Кандидат с critical hard gate failure не может попасть в `safe_fallback_candidates`, даже если `safety = pass`.
+- Eligibility проверяется по canonical fields из `scores[].hard_gates`: `safety`, `truth_fit`, `age_fit`, `utility_goal`, `subject_continuity`, `hard_details`, `character_consistency`.
+- Required gates must be present and `pass`: `safety`, `age_fit`, `truth_fit`, `subject_continuity` and `hard_details`.
+- Conditional gates may be absent only when not applicable: `character_consistency` may be absent when `character_profile` is not present; `utility_goal` may be absent when `utility_mode != TEACHING`.
+- Если required or applicable conditional hard gate отсутствует или имеет unknown/error status, selector не должен считать его pass для safe fallback; он должен исключить candidate или записать diagnostic issue.
+- Каждый `safe_fallback_candidate` должен иметь `why_safe` и `known_issues`; пустой `known_issues` допустим только если кандидат не принят normal approval по некачественной/ранжировочной причине, а не по hard gate failure.
+- Future extension may allow non-critical `hard_details` issues only when hard gate results carry explicit severity and selector policy allows it. MVP requires `hard_details = pass`.
+
 Source invariants:
 
 ```text
@@ -1176,6 +1217,14 @@ stop -> END
 
 После `clarification_interrupt` граф идёт в `input_analysis`.
 
+Правила terminal stop:
+
+- `stop` из `request_classification` используется, когда запрос нельзя довести до исполнимой интерпретации без нового осмысленного ввода: empty/meaningless после лимита, unresolved contradiction, unsupported hard requirement without relaxation или отсутствие понятной темы.
+- `stop` из `request_classification` выставляет `is_completed = true`, `completion_status = "stopped_unresolved_request"`, очищает `pending_interrupt` и сохраняет причину в `interpretation_state.stop_reason` или эквивалентном structured issue field.
+- `failed` не используется для продуктового unresolved request; он зарезервирован для technical/non-recoverable failures.
+- `stopped_by_user` используется только для явного пользовательского stop action.
+- `approved_texts` остаётся пустым, и Stage 2 не запускается.
+
 ### 4.2 Prompt context preparation routing
 
 `route_after_prompt_context_preparation`:
@@ -1208,7 +1257,10 @@ stop -> END
 
 - Routing читает `interpretation_state.validation_result.status`.
 - `fail_reclassify` должен передать `interpretation_state.validation_result` в `request_classification`; classification учитывает причину validation failure, а не повторяет старую классификацию только по analysis/lookup hints.
-- `stop` выставляет terminal status согласно причине validation failure; если причина является hard unsupported requirement, пользовательский сценарий может завершиться без Stage 2.
+- `stop` for product/unresolved request writes `is_completed = true`, `completion_status = "stopped_unresolved_request"`, `interpretation_state.stop_reason`, `interpretation_state.stop_issues` and `interpretation_state.stopped_at`.
+- Technical/non-recoverable validation failure writes `completion_status = "failed"` and diagnostic issues, but does not introduce `interpretation_state.validation_result.status = "failed"`.
+- `completion_status = "failed"` is used only for technical/non-recoverable validation failures, not for hard unsupported user requirements.
+- Если причина является hard unsupported requirement без acceptable relaxation, пользовательский сценарий завершается как `stopped_unresolved_request` без Stage 2.
 
 ### 4.4 Validation loop routing
 
@@ -1323,6 +1375,7 @@ waiting_user
 completed_enough
 completed_with_shortage
 completed_with_shortage_user_accepted
+stopped_unresolved_request
 stopped_by_user
 failed
 ```
@@ -1333,6 +1386,9 @@ failed
 - `completion_status = completed_enough` означает, что requested `output_count` выполнен только normal approved texts из `validated_candidate_versions`.
 - `completion_status = completed_with_shortage` означает terminal shortage и должен явно отображаться UI/API.
 - `completion_status = completed_with_shortage_user_accepted` означает, что пользователь явно принял fewer/fallback results.
+- `completion_status = stopped_unresolved_request` означает, что Stage 1 не смог получить исполнимый запрос после clarification/arbitration rules; это не technical failure и не user-approved stop.
+- `completion_status = stopped_by_user` означает явное действие пользователя остановить сценарий.
+- `completion_status = failed` означает technical или non-recoverable execution failure.
 - `completed_with_shortage` и `completed_with_shortage_user_accepted` не эквивалентны full success.
 
 ### 5.2 `request`
@@ -1580,7 +1636,10 @@ Minimum input request:
     "failed_source": null,
     "issues": [],
     "route_reason": null
-  }
+  },
+  "stop_reason": null,
+  "stop_issues": [],
+  "stopped_at": null
 }
 ```
 
@@ -1589,6 +1648,9 @@ Rules:
 - Confidence values use the canonical `0..100` scale.
 - Routing thresholds must not treat confidence as `0..1` floats.
 - `max_clarification_attempts = 5` applies to the whole clarification contour, not to a single branch.
+- `stop_reason` is populated only when classification/final validation stops before Stage 2 because the request remains unresolved.
+- `stop_issues` stores structured issues that explain why no executable request could be formed.
+- `stopped_at` stores the terminal stop timestamp for `completion_status = "stopped_unresolved_request"`.
 
 ### 5.6 `preview_state`
 
@@ -1985,6 +2047,28 @@ Lookup levels:
 3. fallback by applicability and priority;
 4. unresolved detail.
 
+Ambiguity rules:
+
+- `PromptRegistry` must not auto-pick between multiple applicable exact/name/alias matches with close confidence when the choice can change user-facing meaning.
+- Multiple applicable matches are returned as ambiguity candidates to metadata lookup and stored in `interpretation_state.lookup_hints`.
+- `request_classification` decides whether the ambiguity requires clarification.
+- `fallback_priority` may break ties only when candidates are in the same semantic family and the selected fallback does not materially change user intent.
+- If tie-breaking would change preview semantics, route through clarification rather than choosing silently.
+- The close-confidence threshold is configuration owned by metadata lookup policy; `PromptRegistry` returns candidate scores, match reasons and applicability notes, not a final user-facing choice.
+
+Minimum match candidate schema-like shape:
+
+```text
+{
+  "layer_id": "TRUTH_ANIMAL_PARROT",
+  "match_level": "exact|name|alias|fallback",
+  "match_score": 0.92,
+  "match_reason": "alias match: попугай",
+  "applicability_status": "applicable|partially_applicable|not_applicable",
+  "ambiguity_group_id": "subject:parrot"
+}
+```
+
 ### 6.3 Metadata lookup
 
 Used before preview.
@@ -2220,14 +2304,33 @@ Re-entry rules:
 Non-interrupt recovery:
 
 ```text
-completion_status in completed_enough|completed_with_shortage|completed_with_shortage_user_accepted|stopped_by_user|failed
+completion_status in completed_enough|completed_with_shortage|completed_with_shortage_user_accepted|stopped_unresolved_request|stopped_by_user|failed
   -> END
 
 pending_interrupt.status = waiting
   -> pending_interrupt.node
 
-interpretation_state.validation_result.status != pass
-  -> input_analysis or metadata_lookup or request_classification according to persisted Stage 1 state
+interpretation_state.classification != complete
+  -> input_analysis
+
+interpretation_state.classification = complete
+  and normalized_request incomplete/stale
+  -> input_analysis
+
+interpretation_state.validation_result missing|not_started
+  and normalized_request.prompt_context missing/invalid
+  -> candidate_layer_resolution
+
+interpretation_state.validation_result missing|not_started
+  and normalized_request.prompt_context resolved
+  -> final_parameter_validation
+
+interpretation_state.validation_result.status = fail_reclassify
+  -> request_classification
+
+interpretation_state.validation_result.status = stop
+  and completion_status missing|running
+  -> request_classification
 
 interpretation_state.validation_result.status = pass
   and normalized_request.prompt_context missing/invalid
@@ -2275,11 +2378,19 @@ shortage.status != enough
 - Recovery route выбирается по `stage_status`, `completion_status`, `pending_interrupt`, `validation_loop_state` и snapshot hashes.
 - Top-level result fields (`candidate_texts`, `scores`, `ranked_candidates`, `approved_texts` и т.д.) могут быть пустыми валидными результатами; `exists/missing` не является достаточным recovery signal.
 - Stage 1 recovery must not jump into `candidate_layer_resolution` or `prompt_context_preparation` from a partial draft `normalized_request`.
-- Если `interpretation_state.validation_result.status != "pass"` или classification не complete, recovery возвращается в Stage 1 analysis/classification path.
+- Если Stage 1 recovery ambiguous, route to `input_analysis`.
+- Если `interpretation_state.classification != "complete"`, recovery возвращается в `input_analysis`, чтобы повторно прогнать analysis + metadata lookup + classification на persisted input/state.
+- Если final validation ещё не запускалась, recovery продолжает Stage 1 через `candidate_layer_resolution` или `final_parameter_validation`, а не через `request_classification`.
+- Если `interpretation_state.validation_result.status = "fail_reclassify"` при complete classification, recovery возвращается в `request_classification`, чтобы использовать persisted validation issues и решить clarify/stop/retry path.
+- Если `interpretation_state.validation_result.status = "stop"` уже имеет terminal `completion_status`, recovery завершает в `END`; если terminal status missing из-за partial write, recovery возвращается в `request_classification` как earliest safe repair path.
 - `prompt_context_preparation` is reachable on recovery only after final parameter validation has passed and `normalized_request.prompt_context` is resolved.
 - Recovery не должен повторять Stage 1 или candidate generation, если durable downstream state уже существует и hash/snapshot checks валидны.
 - Если recovered state противоречивый или snapshot hashes invalid, graph routes to the earliest safe verification node:
-  - final validation not passed or classification not complete -> `input_analysis` / `request_classification` path;
+  - classification not complete or normalized request incomplete/stale -> `input_analysis`;
+  - final validation missing/not_started and `normalized_request.prompt_context` missing/invalid -> `candidate_layer_resolution`;
+  - final validation missing/not_started and `normalized_request.prompt_context` resolved -> `final_parameter_validation`;
+  - final validation failed with complete classification -> `request_classification`;
+  - final validation stopped with missing terminal status -> `request_classification`;
   - `normalized_request.prompt_context` missing or invalid -> `candidate_layer_resolution`;
   - `normalized_request.prompt_context` valid but top-level `session.prompt_context` missing, stale or invalid -> `prompt_context_preparation`;
   - Stage 2 snapshot/hash invalid -> earliest affected Stage 2 node;
