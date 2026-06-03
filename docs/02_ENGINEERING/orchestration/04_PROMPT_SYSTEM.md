@@ -63,7 +63,7 @@ Responsibilities:
 - provide prompt body loading by layer id/source when requested by `PromptComposer`;
 - validate required fields;
 - validate unique `id`;
-- store layer index by id/type/alias/applicability;
+- store deterministic layer indexes by id, type, role, namespace, alias, applicability and prompt source hash;
 - return metadata lookup candidates;
 - return execution lookup results;
 - cache parsed metadata by file hash or mtime;
@@ -74,6 +74,7 @@ Boundary:
 - `PromptRegistry` owns prompt file parsing, metadata indexing and low-level body retrieval.
 - `PromptRegistry` does not decide stage composition and does not build per-stage prompt contexts.
 - Stage nodes must not read prompt `.md` files directly; they receive stage context through `PromptComposer`.
+- `PromptRegistry` may scan the full prompt base locally, but it must expose compact lookup candidates to nodes/LLM-assisted steps rather than dumping the full registry metadata.
 
 Lookup levels:
 
@@ -117,6 +118,17 @@ Purpose:
 - decide whether user clarification is needed.
 
 It must not load full prompt bodies.
+
+Registry-index narrowing:
+
+- Metadata lookup is registry-index based.
+- It must not pass the full prompt registry metadata to the LLM.
+- It first narrows candidates deterministically by draft request fields, user terms, `type`, `role`, aliases, namespace, `applies_to`, fallback priority and applicability.
+- Only compact candidate sets may be passed to an LLM-assisted disambiguation step.
+- Compact candidates include ids, type/role, short descriptions, aliases or matched terms, match reasons, applicability notes and fallback notes.
+- Full prompt bodies are not loaded during metadata lookup.
+- If deterministic narrowing finds one exact applicable candidate, no LLM disambiguation is required.
+- If deterministic narrowing finds multiple close candidates whose choice changes user-facing meaning, store ambiguity in `interpretation_state.lookup_hints` and let `request_classification` decide clarification.
 
 ### Execution lookup
 
