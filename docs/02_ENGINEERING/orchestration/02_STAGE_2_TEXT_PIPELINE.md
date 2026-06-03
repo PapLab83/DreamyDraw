@@ -471,7 +471,7 @@ HITL fallback accepted variant:
   "score": 0.71,
   "validation_status": "hitl_fallback_accepted",
   "validation_summary": "Пользователь явно принял safe fallback candidate при shortage.",
-  "why_safe": "Не провалил safety и age gates.",
+  "why_safe": "Прошёл required/applicable hard gates: safety, age_fit, truth_fit, subject_continuity, hard_details и utility_goal для TEACHING.",
   "known_issues": ["Слабее выражена поучительная цель."],
   "expected_visual_idea": "ёжик у следов на снегу",
   "used_context": {

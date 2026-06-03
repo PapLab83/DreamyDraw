@@ -172,7 +172,10 @@ approved_texts
         "safety": "pass",
         "truth_fit": "pass",
         "age_fit": "pass",
-        "subject_continuity": "pass"
+        "utility_goal": "pass",
+        "subject_continuity": "pass",
+        "hard_details": "pass",
+        "character_consistency": "pass"
       },
       "score_components": {
         "child_interest": 0.84,
@@ -196,9 +199,13 @@ approved_texts
 
 ### 4.3 Rules
 
+* canonical `scores[].hard_gates` fields for Stage 2 are `safety`, `truth_fit`, `age_fit`, `utility_goal`, `subject_continuity`, `hard_details`, `character_consistency`;
 * hard gates имеют приоритет над суммарным score;
-* если значимый hard gate провален, кандидат не должен попадать в approved texts;
-* общий score считается только для кандидатов, которые прошли обязательные проверки;
+* required gates must be present and `pass` before normal approval: `safety`, `truth_fit`, `age_fit`, `subject_continuity`, `hard_details`;
+* `utility_goal` is required and critical when `utility_mode = TEACHING` or another explicit utility goal is present;
+* `character_consistency` is required when `character_profile` is present;
+* если required/applicable hard gate провален, отсутствует, `unknown` или `error`, кандидат не должен попадать в approved texts;
+* общий score считается только для кандидатов, которые прошли required/applicable hard gates;
 * на MVP score может выставлять один агент;
 * позже score components можно разнести по нескольким агентам.
 
@@ -399,7 +406,7 @@ approved_texts
 Если approved texts не хватает:
 
 * selector возвращает статус нехватки;
-* selector может вернуть лучшие safe fallback candidates из оставшихся, если они не провалили критичные safety gates;
+* selector может вернуть лучшие safe fallback candidates из оставшихся, если они не провалили required/applicable canonical hard gates;
 * selector сохраняет failure details для анализа;
 * повторная генерация, предложение вариантов пользователю или STOP являются orchestration-level решениями, а не обязанностью selector.
 
@@ -436,12 +443,22 @@ approved_texts
       "text": "Текст безопасного fallback-кандидата...",
       "questions": ["..."],
       "score": 0.71,
-      "why_safe": "Не провалил safety и age gates.",
+      "why_safe": "Прошёл required/applicable hard gates: safety, age_fit, truth_fit, subject_continuity, hard_details и utility_goal для TEACHING.",
       "known_issues": ["Слабее выражена поучительная цель."]
     }
   ]
 }
 ```
+
+Safe fallback eligibility:
+
+* Safe fallback не является normal approved text и не должен маскироваться под accepted validation result.
+* Кандидат с critical hard gate failure не может попасть в `safe_fallback_candidates`, даже если `safety = pass`.
+* Eligibility проверяется по canonical fields из `scores[].hard_gates`: `safety`, `truth_fit`, `age_fit`, `utility_goal`, `subject_continuity`, `hard_details`, `character_consistency`.
+* Required gates must be present and `pass`: `safety`, `age_fit`, `truth_fit`, `subject_continuity`, `hard_details`.
+* Conditional gates may be absent only when not applicable: `character_consistency` may be absent when `character_profile` is not present; `utility_goal` may be absent when `utility_mode != TEACHING` and no explicit utility goal exists.
+* Если required or applicable conditional hard gate отсутствует или имеет `unknown` / `error`, selector не должен считать его pass для safe fallback.
+* Для `utility_mode = TEACHING`, `utility_goal` failure является critical, если fallback может научить неверному, небезопасному или противоположному поведению.
 
 ---
 
