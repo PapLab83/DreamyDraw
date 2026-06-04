@@ -14,8 +14,8 @@ applies_to:
   truth_modes: [FAIRY_TALE]
   utility_modes: [NARRATIVE, TEACHING]
   ages: ["3", "5"]
-user_description: Сказочная история, где волшебные события и говорящие персонажи допустимы.
-short_description: Базовые правила сказочного мира: разрешены fairy-tale devices, speaking animals и мягкое чудо в пределах возраста и utility.
+user_description: "Сказочная история, где волшебные события и говорящие персонажи допустимы."
+short_description: "Базовые правила сказочного мира: разрешены fairy-tale devices, speaking animals и мягкое чудо в пределах возраста и utility."
 constraints:
   - Сказочные устройства разрешены, если они age-safe и utility-safe.
   - Волшебство не должно отменять hard details, required subjects, utility goal или character_profile.

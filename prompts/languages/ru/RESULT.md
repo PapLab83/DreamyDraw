@@ -14,8 +14,8 @@ applies_to:
   truth_modes: [TRUTH, FAIRY_TALE, MYTH]
   utility_modes: [NARRATIVE, TEACHING]
   ages: ["3", "5"]
-user_description: Финальный результат истории и вопросов должен быть на русском языке.
-short_description: Result language слой для русского final generated text: story text, questions and child-facing result fields.
+user_description: "Финальный результат истории и вопросов должен быть на русском языке."
+short_description: "Result language слой для русского final generated text: story text, questions and child-facing result fields."
 constraints:
   - Final `text` и `questions` должны быть на русском.
   - Не добавлять случайный английский в child-facing result.
