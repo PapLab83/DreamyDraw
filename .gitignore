@@ -2,11 +2,14 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
 venv/
 .env
 
 # Project specific
 output/
+test_output/
+transcripts/
 .idea/
 .DS_Store
 
