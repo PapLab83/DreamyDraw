@@ -151,6 +151,27 @@ def test_console_script_smoke(tmp_path):
     _assert_stage2_not_started(loaded)
 
 
+def test_stable_fail_reresolve_is_bounded_and_persisted(tmp_path, monkeypatch):
+    storage = JSONStorage(str(tmp_path))
+    runner = Stage1Runner(storage=storage, prompts_root=PROMPTS_ROOT)
+    monkeypatch.setattr(runner.registry, "source_exists", lambda _layer_id: False)
+
+    result = runner.start(SUPPORTED_REQUEST)
+
+    assert result.is_stage1_ready is False
+    assert result.is_waiting_user is False
+    assert result.is_done is False
+    assert result.session.interpretation_state.execution_lookup_result.status == "fail_reresolve"
+    assert result.session.interpretation_state.execution_lookup_result.details["failure_type"] == (
+        "missing_source"
+    )
+    persisted = storage.get_session(result.session.session_id)
+    assert persisted is not None
+    assert persisted.interpretation_state.execution_lookup_result.status == "fail_reresolve"
+    assert persisted.prompt_context.snapshot_hash
+    _assert_stage2_not_started(persisted)
+
+
 def _line_value(output: str, prefix: str) -> str:
     for line in output.splitlines():
         if line.startswith(prefix):

@@ -51,11 +51,13 @@ class Stage1Runner:
         prompts_root: str | Path = "prompts",
         registry: PromptRegistry | None = None,
         composer: PromptComposer | None = None,
+        max_reresolve_attempts: int = 2,
     ) -> None:
         self.storage = storage or JSONStorage(str(storage_dir))
         self.prompts_root = Path(prompts_root)
         self.registry = registry or PromptRegistry.load(self.prompts_root)
         self.composer = composer or PromptComposer(self.registry)
+        self.max_reresolve_attempts = max_reresolve_attempts
 
     def start(
         self,
@@ -121,38 +123,44 @@ class Stage1Runner:
         return self._run_ready_path(state)
 
     def _run_ready_path(self, state: GraphState) -> Stage1RunResult:
-        for _ in range(3):
-            state = self._step(state, candidate_layer_resolution, self.registry)
-            state = self._step(state, final_parameter_validation, self.registry)
-            validation_status = state["session"].interpretation_state.validation_result.status
-            if validation_status == "pass":
-                break
-            if validation_status in {"stop"}:
+        reresolve_attempts = 0
+        while True:
+            for _ in range(3):
+                state = self._step(state, candidate_layer_resolution, self.registry)
+                state = self._step(state, final_parameter_validation, self.registry)
+                validation_status = state["session"].interpretation_state.validation_result.status
+                if validation_status == "pass":
+                    break
+                if validation_status in {"stop"}:
+                    state = self._step(state, request_classification)
+                    return self._result(state["session"])
                 state = self._step(state, request_classification)
+                if state["session"].interpretation_state.classification != "complete":
+                    return self.run(state["session"])
+
+            state = self._step(state, preview)
+            state = self._step(
+                state,
+                prompt_context_preparation,
+                self.registry,
+                self.composer,
+            )
+
+            execution_status = state["session"].interpretation_state.execution_lookup_result.status
+            if execution_status == "pass":
                 return self._result(state["session"])
-            state = self._step(state, request_classification)
-            if state["session"].interpretation_state.classification != "complete":
-                return self.run(state["session"])
+            if execution_status == "fail_reresolve":
+                if reresolve_attempts >= self.max_reresolve_attempts:
+                    self._save(state["session"])
+                    return self._result(state["session"])
+                reresolve_attempts += 1
+                continue
+            if execution_status == "fail_clarify":
+                state = self._step(state, clarification_interrupt)
+                return self._result(state["session"])
 
-        state = self._step(state, preview)
-        state = self._step(
-            state,
-            prompt_context_preparation,
-            self.registry,
-            self.composer,
-        )
-
-        execution_status = state["session"].interpretation_state.execution_lookup_result.status
-        if execution_status == "pass":
+            self._save(state["session"])
             return self._result(state["session"])
-        if execution_status == "fail_reresolve":
-            return self._run_ready_path(state)
-        if execution_status == "fail_clarify":
-            state = self._step(state, clarification_interrupt)
-            return self._result(state["session"])
-
-        self._save(state["session"])
-        return self._result(state["session"])
 
     def _step(self, state: GraphState, fn: Any, *args: Any) -> GraphState:
         next_state = fn(state, *args)
