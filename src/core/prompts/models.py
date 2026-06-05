@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.models.schemas import StagePromptContextEntry
 
 PromptType = Literal[
     "format",
@@ -156,3 +159,9 @@ class ExecutionLookupEnvelope:
             "fallback_layers": list(self.fallback_layers),
             "unresolved_details": self.unresolved_details,
         }
+
+
+@dataclass(frozen=True)
+class StagePromptContextBuild:
+    durable_entry: "StagePromptContextEntry"
+    runtime_context: dict[str, Any]
