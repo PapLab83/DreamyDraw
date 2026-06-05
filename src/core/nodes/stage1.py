@@ -11,6 +11,7 @@ from src.core.prompts.composer import PromptComposer
 from src.core.prompts.lookup import execute_prompt_lookup, lookup_prompt_metadata
 from src.core.prompts.registry import PromptRegistry
 from src.models.schemas import (
+    CompletionStatus,
     ExecutionPromptContext,
     NormalizedPromptContext,
     NormalizedRequest,
@@ -56,7 +57,7 @@ def input_analysis(state: GraphState) -> GraphState:
 
     if valid_resume_consumed:
         session.pending_interrupt = None
-        session.completion_status = "running"
+        session.completion_status = CompletionStatus.RUNNING
     state["user_input"] = None
 
     normalized = _extract_normalized_request(session, text)
@@ -429,7 +430,7 @@ def _input_text(session: SessionState, resume_payload: Any) -> tuple[str, bool]:
 
 def _stop_session(session: SessionState, *, reason: str, issues: list[str]) -> None:
     session.is_completed = True
-    session.completion_status = "stopped_unresolved_request"
+    session.completion_status = CompletionStatus.STOPPED_UNRESOLVED_REQUEST
     session.pending_interrupt = None
     session.interpretation_state.stop_reason = reason
     session.interpretation_state.stop_issues = issues
@@ -578,7 +579,7 @@ def _create_or_reuse_interrupt(
     session = state["session"]
     if session.pending_interrupt and session.pending_interrupt.status == "waiting":
         session.is_completed = False
-        session.completion_status = "waiting_user"
+        session.completion_status = CompletionStatus.WAITING_USER
         session.current_node = node
         return state
 
@@ -606,7 +607,7 @@ def _create_or_reuse_interrupt(
         },
     )
     session.is_completed = False
-    session.completion_status = "waiting_user"
+    session.completion_status = CompletionStatus.WAITING_USER
     session.current_node = node
     return state
 

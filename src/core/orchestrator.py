@@ -25,7 +25,7 @@ from src.core.graph.builder import build_graph
 from src.core.graph.state import to_graph_state
 from src.core.pipeline_result import PipelineResult
 from src.core.prompt_builder import PromptBuilder
-from src.models.schemas import GenerationRequest, SessionState, StoryItem
+from src.models.schemas import CompletionStatus, GenerationRequest, SessionState, StoryItem
 from src.providers.base import BaseImageProvider, BaseLLMProvider
 from src.storage.json_storage import JSONStorage
 from src.utils.langfuse_client import (
@@ -166,6 +166,9 @@ class Orchestrator:
             # после каждого шага. Это надёжнее, чем доверять final_state, который
             # может быть промежуточным при interrupt.
             actual_session = self.storage.get_session(session_id) or final_state["session"]
+            if interrupt_data is None and actual_session.current_node == "failed":
+                actual_session.completion_status = CompletionStatus.FAILED
+                self.storage.save_session(actual_session)
 
             # Финальный output на trace — видно сразу в Langfuse UI
             update_current_trace(

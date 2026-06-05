@@ -1,19 +1,18 @@
-"""
-PipelineResult — результат вызова Orchestrator.run_pipeline().
-
-Содержит:
-    - session: текущее состояние сессии
-    - interrupt: данные interrupt, если граф остановился (None если завершился/упал)
-
-interrupt: dict с обязательными ключами:
-    - type: 'config_arbitration' | 'plan_arbitration' | 'user_confirmation'
-    - все остальные поля специфичны для типа (см. сами ноды)
-"""
+"""Public pipeline call result for legacy and Stage 1-2 orchestrators."""
 
 from dataclasses import dataclass
 from typing import Optional
 
-from src.models.schemas import SessionState
+from src.models.schemas import CompletionStatus, SessionState
+
+TERMINAL_COMPLETION_STATUSES = {
+    CompletionStatus.COMPLETED_ENOUGH.value,
+    CompletionStatus.COMPLETED_WITH_SHORTAGE.value,
+    CompletionStatus.COMPLETED_WITH_SHORTAGE_USER_ACCEPTED.value,
+    CompletionStatus.STOPPED_UNRESOLVED_REQUEST.value,
+    CompletionStatus.STOPPED_BY_USER.value,
+    CompletionStatus.FAILED.value,
+}
 
 
 @dataclass
@@ -24,16 +23,28 @@ class PipelineResult:
     @property
     def is_done(self) -> bool:
         """Граф завершился (успешно или с ошибкой), interrupt не ожидается."""
-        return self.interrupt is None
+        if self.is_waiting_user:
+            return False
+        return bool(self.session.is_completed) or _status_value(self.session.completion_status) in TERMINAL_COMPLETION_STATUSES
 
     @property
     def is_waiting_user(self) -> bool:
         """Граф остановился на interrupt — нужен ввод пользователя."""
-        return self.interrupt is not None
+        if self.interrupt is not None:
+            return True
+        pending = self.session.pending_interrupt
+        return bool(pending and pending.status == "waiting")
 
     @property
     def interrupt_type(self) -> Optional[str]:
         """Тип interrupt-точки, если граф остановлен."""
-        if self.interrupt is None:
-            return None
-        return self.interrupt.get("type")
+        if self.interrupt is not None:
+            return self.interrupt.get("type")
+        pending = self.session.pending_interrupt
+        if pending and pending.status == "waiting":
+            return pending.type
+        return None
+
+
+def _status_value(status) -> str:
+    return getattr(status, "value", status)

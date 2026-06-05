@@ -11,12 +11,15 @@ from src.models.schemas import (
     ApprovedText,
     CandidateScore,
     CandidateText,
+    CompletionStatus,
     DeduplicationResult,
     RefinedCandidateVersion,
     RankedCandidate,
     SessionState,
+    StageStatusValue,
     ValidatedCandidateVersion,
     ValidationIssue,
+    ValidationLoopStatus,
     ValidationResult,
 )
 
@@ -233,7 +236,7 @@ def candidate_validator(
         loop.accepted_count = len(session.validated_candidate_versions)
         loop.selector_eligible_unique_accepted_count = _selector_eligible_accepted_count(session)
 
-    session.stage_status.validation_loop.status = "running"
+    session.stage_status.validation_loop.status = ValidationLoopStatus.RUNNING
     session.current_node = "candidate_validator"
     return state
 
@@ -295,7 +298,7 @@ def candidate_refiner(
     loop.active_version_origin = "refined"
     loop.active_text_source = "refined_candidate_versions"
     session.pipeline_counters.refinement_attempts += 1
-    session.stage_status.validation_loop.status = "running"
+    session.stage_status.validation_loop.status = ValidationLoopStatus.RUNNING
     session.current_node = "candidate_refiner"
     return state
 
@@ -347,11 +350,11 @@ def approved_text_selector(state: GraphState) -> GraphState:
     if len(selected) >= requested:
         session.shortage.status = "enough"
         session.shortage.reason = None
-        session.completion_status = "completed_enough"
+        session.completion_status = CompletionStatus.COMPLETED_ENOUGH
     else:
         session.shortage.status = "not_enough_valid_candidates"
         session.shortage.reason = "Not enough accepted validated candidate versions."
-        session.completion_status = "completed_with_shortage"
+        session.completion_status = CompletionStatus.COMPLETED_WITH_SHORTAGE
     session.is_completed = True
     _complete_stage(session, "approved_text_selector")
     session.current_node = "approved_text_selector"
@@ -392,7 +395,7 @@ def advance_validation_cursor(session: SessionState) -> None:
     loop.active_version_id = f"{ranked.candidate_id}_v1"
     loop.active_version_origin = "draft"
     loop.active_text_source = "candidate_texts"
-    session.stage_status.validation_loop.status = "running"
+    session.stage_status.validation_loop.status = ValidationLoopStatus.RUNNING
 
 
 def has_validation_queue_exhausted(session: SessionState) -> bool:
@@ -508,13 +511,13 @@ def _initialize_validation_loop(session: SessionState) -> None:
         loop.active_version_id = f"{first.candidate_id}_v1"
         loop.active_version_origin = "draft"
         loop.active_text_source = "candidate_texts"
-        session.stage_status.validation_loop.status = "running"
+        session.stage_status.validation_loop.status = ValidationLoopStatus.RUNNING
     else:
         loop.active_candidate_id = None
         loop.active_version_id = None
         loop.active_version_origin = None
         loop.active_text_source = None
-        session.stage_status.validation_loop.status = "completed"
+        session.stage_status.validation_loop.status = ValidationLoopStatus.COMPLETED
         session.stage_status.validation_loop.completed_at = _now()
     loop.accepted_count = len(session.validated_candidate_versions)
     loop.selector_eligible_unique_accepted_count = _selector_eligible_accepted_count(session)
@@ -526,7 +529,7 @@ def _complete_validation_loop(session: SessionState) -> None:
     loop.active_version_id = None
     loop.active_version_origin = None
     loop.active_text_source = None
-    session.stage_status.validation_loop.status = "completed"
+    session.stage_status.validation_loop.status = ValidationLoopStatus.COMPLETED
     session.stage_status.validation_loop.completed_at = _now()
 
 
@@ -611,7 +614,7 @@ def _candidate_used_context(session: SessionState, candidate_id: str):
 
 def _complete_stage(session: SessionState, field_name: str) -> None:
     marker = getattr(session.stage_status, field_name)
-    marker.status = "completed"
+    marker.status = StageStatusValue.COMPLETED
     marker.completed_at = _now()
 
 
