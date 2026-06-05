@@ -230,6 +230,7 @@ class InterpretationState(BaseModel):
     clarification_attempts: int = 0
     max_clarification_attempts: int = 5
     lookup_hints: Dict[str, Any] = Field(default_factory=dict)
+    layer_resolution_result: StatusResult = Field(default_factory=StatusResult)
     validation_result: StatusResult = Field(default_factory=StatusResult)
     execution_lookup_result: StatusResult = Field(default_factory=StatusResult)
     stop_reason: Optional[str] = None

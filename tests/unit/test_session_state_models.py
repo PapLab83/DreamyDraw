@@ -29,6 +29,7 @@ def test_session_state_defaults_are_explicit_and_recoverable():
     assert session.normalized_request.user_context.available is False
     assert session.normalized_request.user_context.defaults == {}
     assert session.interpretation_state.max_clarification_attempts == 5
+    assert session.interpretation_state.layer_resolution_result.status == "not_started"
     assert session.interpretation_state.validation_result.status == "not_started"
     assert session.interpretation_state.execution_lookup_result.status == "not_started"
     assert session.stage_status.candidate_text_generator.status == StageStatusValue.NOT_STARTED
