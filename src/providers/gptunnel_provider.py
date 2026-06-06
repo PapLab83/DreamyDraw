@@ -1,11 +1,14 @@
-import requests
+import logging
 import os
 import time
-import logging
 from typing import List
-from src.providers.base import BaseLLMProvider, BaseImageProvider
-from src.config.settings import settings
+
+import requests
 from openai import OpenAI
+
+from src.config.settings import settings
+from src.providers.base import BaseLLMProvider, BaseImageProvider
+from src.utils import langfuse_client
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +21,7 @@ class GPTunnelLLMProvider(BaseLLMProvider):
         self.model = settings.LLM_MODEL
 
     def generate_text(self, prompt: str) -> str:
-        from langfuse import get_client
-        langfuse = get_client()
+        langfuse = langfuse_client.get_client()
 
         # Если SDK выключен / не инициализирован — работаем без трейсинга
         if langfuse is None:
@@ -79,8 +81,7 @@ class GPTunnelMediaProvider(BaseImageProvider):
         self.model = settings.IMAGE_MODEL # Например, grok-imagine или gpt-image-1-high
 
     def generate_image(self, prompt: str, overlay_text: str, output_path: str) -> str:
-        from langfuse import get_client
-        langfuse = get_client()
+        langfuse = langfuse_client.get_client()
 
         # Без обвязки если SDK не активен
         if langfuse is None:

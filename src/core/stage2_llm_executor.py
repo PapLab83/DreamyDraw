@@ -195,7 +195,7 @@ class LLMStage2TextExecutor:
         if status not in VALID_VALIDATION_STATUSES:
             status = "needs_revision"
         issues = _normalize_issues(parsed.get("issues"))
-        if status == "accepted" and any(issue["severity"] == "critical" for issue in issues):
+        if status == "accepted" and issues:
             status = "needs_revision"
         return {
             "status": status,

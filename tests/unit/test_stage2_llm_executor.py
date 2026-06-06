@@ -165,6 +165,27 @@ def test_validate_candidate_never_accepts_critical_issues() -> None:
     assert result["status"] == "needs_revision"
 
 
+@pytest.mark.parametrize("issue_type", ["safety", "truth_fit"])
+def test_validate_candidate_never_accepts_major_issues(issue_type: str) -> None:
+    provider = ScriptedLLMProvider(
+        [
+            json.dumps(
+                {
+                    "status": "accepted",
+                    "summary": "has major issue",
+                    "issues": [{"type": issue_type, "severity": "major", "description": "must not approve"}],
+                    "required_fixes": ["fix issue"],
+                }
+            )
+        ]
+    )
+    executor = LLMStage2TextExecutor(provider)
+
+    result = executor.validate_candidate(_runtime_context())
+
+    assert result["status"] == "needs_revision"
+
+
 def test_refine_candidate_parse_failure_preserves_original_text() -> None:
     provider = ScriptedLLMProvider(["not-json"])
     executor = LLMStage2TextExecutor(provider, max_retries=0)
