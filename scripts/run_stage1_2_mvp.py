@@ -12,63 +12,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.core.stage1_2_orchestrator import Stage1_2Orchestrator
+from src.core.factory import build_stage2_text_executor, validate_llm_provider_config
 from src.storage.json_storage import JSONStorage
-
-
-REQUIRED_GATES = {
-    "safety",
-    "truth_fit",
-    "age_fit",
-    "utility_goal",
-    "subject_continuity",
-    "hard_details",
-    "character_consistency",
-}
-
-
-class MockStage2TextExecutor:
-    def generate_candidates(self, runtime_context: dict[str, Any], count: int) -> list[dict[str, Any]]:
-        base = [
-            ("Лиса ждёт зелёный", "Лиса остановилась у перехода и дождалась зелёного света."),
-            ("Лиса смотрит по сторонам", "Перед дорогой лиса посмотрела налево и направо."),
-            ("Лиса ждёт зелёный", "Лиса снова вспоминает про зелёный свет."),
-        ]
-        return [
-            {
-                "theme": theme,
-                "text": text,
-                "questions": ["Когда можно переходить дорогу?"],
-                "utility_points": ["остановиться", "посмотреть по сторонам"],
-                "used_subjects": ["fox"],
-            }
-            for theme, text in base[:count]
-        ]
-
-    def deduplicate_topics(self, runtime_context: dict[str, Any]) -> list[dict[str, Any]]:
-        return []
-
-    def score_candidates(self, runtime_context: dict[str, Any]) -> list[dict[str, Any]]:
-        return [
-            {
-                "candidate_id": candidate["candidate_id"],
-                "hard_gates": {gate: "pass" for gate in REQUIRED_GATES},
-                "score_components": {"novelty": 0.8, "visual_potential": 0.8},
-                "total_score": 0.9 - index * 0.05,
-            }
-            for index, candidate in enumerate(runtime_context["candidate_texts"])
-        ]
-
-    def validate_candidate(self, runtime_context: dict[str, Any]) -> dict[str, Any]:
-        return {"status": "accepted", "summary": "ok", "issues": [], "required_fixes": []}
-
-    def refine_candidate(self, runtime_context: dict[str, Any]) -> dict[str, Any]:
-        candidate = runtime_context["candidate_text"]
-        return {
-            "theme": candidate["theme"],
-            "text": candidate["text"],
-            "questions": candidate.get("questions", []),
-            "changes_summary": "Без изменений.",
-        }
 
 
 def main() -> int:
@@ -78,12 +23,26 @@ def main() -> int:
     parser.add_argument("--session", default=None, help="Existing session id to resume.")
     parser.add_argument("--resume", default=None, help="Clarification response for an existing session.")
     parser.add_argument("--output-dir", default=os.environ.get("DREAMYDRAW_STAGE1_2_OUTPUT_DIR", "output/stage1_2_mvp"))
+    parser.add_argument("--executor", choices=("mock", "llm"), default="mock", help="Stage 2 text executor.")
+    parser.add_argument("--provider", default=None, help="LLM provider for --executor llm. Defaults to LLM_PROVIDER.")
+    parser.add_argument("--model", default=None, help="LLM model for --executor llm. Defaults to LLM_MODEL.")
     args = parser.parse_args()
+
+    if args.executor == "llm":
+        try:
+            validate_llm_provider_config(args.provider)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     storage = JSONStorage(args.output_dir)
     orchestrator = Stage1_2Orchestrator(
         storage=storage,
-        text_executor=MockStage2TextExecutor(),
+        text_executor=build_stage2_text_executor(
+            executor_type=args.executor,
+            provider_name=args.provider,
+            model_name=args.model,
+        ),
         prompts_root=Path(__file__).resolve().parents[1] / "prompts",
         candidate_count=3,
     )
