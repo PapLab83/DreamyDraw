@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import re
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -16,6 +19,7 @@ from src.models.schemas import (
     RefinedCandidateVersion,
     RankedCandidate,
     SessionState,
+    StagePromptContextEntry,
     StageStatusValue,
     ValidatedCandidateVersion,
     ValidationIssue,
@@ -34,6 +38,7 @@ REQUIRED_HARD_GATES = (
     "character_consistency",
 )
 _CRITICAL_HARD_GATES = set(REQUIRED_HARD_GATES)
+logger = logging.getLogger(__name__)
 
 
 class Stage2TextExecutor(Protocol):
@@ -305,6 +310,10 @@ def candidate_refiner(
 
 def approved_text_selector(state: GraphState) -> GraphState:
     session = state["session"]
+    try:
+        _append_selector_stage_context(session)
+    except Exception as exc:
+        logger.debug("append selector stage context failed: %s", exc)
     selected: list[ApprovedText] = []
     seen_themes: set[str] = set()
     by_candidate = {item.candidate_id: item for item in session.validated_candidate_versions if item.validation_status == "accepted"}
@@ -359,6 +368,31 @@ def approved_text_selector(state: GraphState) -> GraphState:
     _complete_stage(session, "approved_text_selector")
     session.current_node = "approved_text_selector"
     return state
+
+
+def _append_selector_stage_context(session: SessionState) -> None:
+    if any(entry.stage == "approved_text_selector" for entry in session.stage_prompt_context.entries):
+        return
+    payload = {
+        "stage": "approved_text_selector",
+        "source_prompt_context_hash": session.prompt_context.snapshot_hash,
+        "ranked_candidate_ids": [item.candidate_id for item in sorted(session.ranked_candidates, key=lambda item: item.rank)],
+        "validated_version_ids": [item.version_id for item in session.validated_candidate_versions],
+        "requested": session.normalized_request.output_count,
+        "body_policy": "lazy_not_persisted",
+    }
+    session.stage_prompt_context.entries.append(
+        StagePromptContextEntry(
+            stage="approved_text_selector",
+            source_prompt_context_hash=session.prompt_context.snapshot_hash,
+            stage_context_hash=_stable_hash(payload),
+            body_policy="lazy_not_persisted",
+            context_summary=(
+                f"select approved texts requested={session.normalized_request.output_count} "
+                f"validated={len(session.validated_candidate_versions)}"
+            ),
+        )
+    )
 
 
 def active_candidate_text(session: SessionState) -> CandidateText | RefinedCandidateVersion:
@@ -620,3 +654,8 @@ def _complete_stage(session: SessionState, field_name: str) -> None:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _stable_hash(payload: Any) -> str:
+    data = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
