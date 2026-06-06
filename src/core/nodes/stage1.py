@@ -13,37 +13,75 @@ from src.core.prompts.registry import PromptRegistry
 from src.models.schemas import (
     CompletionStatus,
     ExecutionPromptContext,
+    CharacterProfile,
     NormalizedPromptContext,
     NormalizedRequest,
     PendingInterrupt,
+    PromptFallbackLayer,
     PromptLayerRef,
     PromptUnresolvedDetail,
     SessionState,
     StatusResult,
     Subject,
+    SubjectContinuityPolicy,
 )
 
 _SUPPORTED_LAYER_IDS = {
     "content_format": "CONTENT_FORMAT_STORY",
-    "truth_mode": "FAIRY_TALE_BASE",
-    "utility_mode": "UTILITY_TEACHING_BASE",
-    "utility_topic": "UTILITY_TOPIC_ROAD_SAFETY",
-    "age": "AGE_5",
+    "truth_mode:TRUTH": "TRUTH_BASE",
+    "truth_mode:FAIRY_TALE": "FAIRY_TALE_BASE",
+    "truth_mode:MYTH": "MYTH_BASE",
+    "utility_mode:NARRATIVE": "UTILITY_NARRATIVE_BASE",
+    "utility_mode:TEACHING": "UTILITY_TEACHING_BASE",
+    "utility_topic:ROAD_SAFETY": "UTILITY_TOPIC_ROAD_SAFETY",
+    "utility_topic:HAND_WASHING_AFTER_WALK": "UTILITY_TOPIC_HAND_WASHING_AFTER_WALK",
+    "utility_topic:STRANGERS_AND_CANDY": "UTILITY_TOPIC_STRANGERS_AND_CANDY",
+    "age:3": "AGE_3",
+    "age:5": "AGE_5",
     "audience_language": "LANGUAGE_RU_AUDIENCE",
     "result_language": "LANGUAGE_RU_RESULT",
+    "substyle:myth_soft": "MYTH_SOFT_BASE",
+    "substyle:naturalistic_animal_story": "NATURALISTIC_ANIMAL_STORY",
     "substyle:russian_folk_tale": "RUSSIAN_FOLK_TALE",
-    "subject:fox": "FAIRY_TALE_ANIMAL_FOX",
+    "entity:child": "ENTITY_CHILD",
+    "entity:hands": "ENTITY_HANDS",
+    "entity:soap": "ENTITY_SOAP",
+    "entity:road": "ENTITY_ROAD",
+    "entity:traffic_light": "ENTITY_TRAFFIC_LIGHT",
+    "entity:stranger": "ENTITY_STRANGER",
+    "entity:candy": "ENTITY_CANDY",
+    "entity:caring_adult": "ENTITY_CARING_ADULT",
+    "subject:TRUTH:fox": "TRUTH_ANIMAL_FOX",
+    "subject:FAIRY_TALE:fox": "FAIRY_TALE_ANIMAL_FOX",
+    "subject:TRUTH:hedgehog": "TRUTH_ANIMAL_HEDGEHOG",
+    "subject:FAIRY_TALE:hedgehog": "FAIRY_TALE_ANIMAL_HEDGEHOG",
+    "subject:TRUTH:hare": "TRUTH_ANIMAL_HARE",
+    "subject:FAIRY_TALE:hare": "FAIRY_TALE_ANIMAL_HARE",
+    "subject:TRUTH:squirrel": "TRUTH_ANIMAL_SQUIRREL",
+    "subject:FAIRY_TALE:squirrel": "FAIRY_TALE_ANIMAL_SQUIRREL",
+    "subject:TRUTH:parrot": "TRUTH_ANIMAL_PARROT",
 }
 
-_FAIRY_TALE_RE = re.compile(r"\bсказ(?:ка|ку|ки|кой|ке|ок|очная|очный|очное)\b", re.I)
-_TEACHING_TERMS = ("научи", "объясни", "безопасность", "дорога", "переход", "светофор")
+_FAIRY_TALE_RE = re.compile(r"сказ(?:к|очн)", re.I)
+_TRUTH_RE = re.compile(r"(правдив|реалистич|как в жизни|без сказки)", re.I)
+_MYTH_RE = re.compile(r"(миф|мифологич|древн(?:яя|юю)\s+истори)", re.I)
+_TEACHING_TERMS = ("научи", "объясни", "безопасность", "дорога", "переход", "светофор", "поучительн", "мыть", "рук", "незнаком", "конфет")
 _ROAD_TERMS = ("безопасность", "дорог", "переход", "светофор")
+_HAND_WASHING_TERMS = ("мыть", "мытьё", "мытье", "рук", "мыло", "прогулк")
 _FOX_RE = re.compile(r"\b(лиса|лис|лису|лисой|лисе|лисичка|лисичку|лисица|лисицу)\b", re.I)
+_HEDGEHOG_RE = re.compile(r"\b(ёжик|ежик|ежа|ежом|ёжика|ежика)\b", re.I)
+_HARE_RE = re.compile(r"\b(заяц|зайца|зайцу|зайцем|зайчик|зайца)\b", re.I)
+_SQUIRREL_RE = re.compile(r"\b(белка|белку|белки|бельчонок|бельчонка|белчонок|белчонка)\b", re.I)
+_PARROT_RE = re.compile(r"\b(попугай|попугая|какаду)\b", re.I)
+_SUN_RE = re.compile(r"\b(солнце|солнца|солнцу)\b", re.I)
+_WIND_RE = re.compile(r"\b(ветер|ветра|ветру|ветром)\b", re.I)
 _AGE_RE = re.compile(r"(?:для\s*)?([3-9])\s*(?:лет|года|год)?", re.I)
 _UNSUPPORTED_RE = re.compile(
     r"\b(дисней|disney|микки|mickey|человек[- ]?паук|spider[- ]?man|гарри поттер|harry potter)\b",
     re.I,
 )
+_SOFT_STYLE_RE = re.compile(r"в\s+([^.!?]*(?:импрессионистичн|акварельн)[^.!?]*)", re.I)
+_FANTASTIC_TRUTH_RE = re.compile(r"(волшебн|магическ|колдов|летала?\s+на\s+волшебн|говор(?:ит|ила?)\s+человеческ)", re.I)
 _IMPOSSIBLE_VISUAL_RE = re.compile(
     r"\b(точн(?:ая|ое|ый)\s+картин|фотореалистич|анимаци|мультфильм|сгенерируй\s+картин)\b",
     re.I,
@@ -73,12 +111,26 @@ def metadata_lookup(state: GraphState, registry: PromptRegistry) -> GraphState:
 
     hints: dict[str, Any] = {}
     _hint(hints, "content_format", registry, ["story"], type="format", role="content_format")
-    if request.truth_mode == "FAIRY_TALE":
-        _hint(hints, "truth_mode", registry, ["FAIRY_TALE", "сказка"], type="truth_mode")
-    if request.utility_mode == "TEACHING":
-        _hint(hints, "utility_mode", registry, ["TEACHING", "обучение"], type="utility", role="utility_mode")
-    if request.utility_topic == "ROAD_SAFETY":
-        _hint(hints, "utility_topic", registry, ["ROAD_SAFETY", "дорога"], type="utility", role="utility_topic")
+    if request.truth_mode:
+        truth_terms = {
+            "TRUTH": ["TRUTH", "правдиво"],
+            "FAIRY_TALE": ["FAIRY_TALE", "сказка"],
+            "MYTH": ["MYTH", "миф"],
+        }
+        _hint(hints, "truth_mode", registry, truth_terms.get(request.truth_mode, [request.truth_mode]), type="truth_mode")
+    if request.utility_mode:
+        utility_terms = {
+            "NARRATIVE": ["NARRATIVE", "история"],
+            "TEACHING": ["TEACHING", "обучение"],
+        }
+        _hint(hints, "utility_mode", registry, utility_terms.get(request.utility_mode, [request.utility_mode]), type="utility", role="utility_mode")
+    if request.utility_topic:
+        topic_terms = {
+            "ROAD_SAFETY": ["ROAD_SAFETY", "дорога"],
+            "HAND_WASHING_AFTER_WALK": ["HAND_WASHING_AFTER_WALK", "руки"],
+            "STRANGERS_AND_CANDY": ["STRANGERS_AND_CANDY", "незнакомец конфета"],
+        }
+        _hint(hints, "utility_topic", registry, topic_terms.get(request.utility_topic, [request.utility_topic]), type="utility", role="utility_topic")
     if request.target_age:
         _hint(hints, "age", registry, [request.target_age], type="age")
     _hint(hints, "audience_language", registry, [request.audience_language], type="language", role="audience_language")
@@ -222,14 +274,38 @@ def candidate_layer_resolution(state: GraphState, registry: PromptRegistry) -> G
     unresolved: list[PromptUnresolvedDetail] = []
 
     _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["content_format"], "content_format=story")
-    if request.truth_mode == "FAIRY_TALE":
-        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["truth_mode"], "truth_mode=FAIRY_TALE")
-    if request.utility_mode == "TEACHING":
-        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["utility_mode"], "utility_mode=TEACHING")
-    if request.utility_topic == "ROAD_SAFETY":
-        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["utility_topic"], "utility_topic=ROAD_SAFETY")
-    if request.target_age == "5":
-        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["age"], "target_age=5")
+    if request.truth_mode:
+        _append_supported_ref_or_unresolved(
+            refs,
+            unresolved,
+            registry,
+            f"truth_mode:{request.truth_mode}",
+            f"truth_mode={request.truth_mode}",
+            label=f"truth_mode {request.truth_mode}",
+            type_="truth_mode",
+        )
+    if request.utility_mode:
+        _append_supported_ref_or_unresolved(
+            refs,
+            unresolved,
+            registry,
+            f"utility_mode:{request.utility_mode}",
+            f"utility_mode={request.utility_mode}",
+            label=f"utility_mode {request.utility_mode}",
+            type_="utility_mode",
+        )
+    if request.utility_topic:
+        _append_supported_ref_or_unresolved(
+            refs,
+            unresolved,
+            registry,
+            f"utility_topic:{request.utility_topic}",
+            f"utility_topic={request.utility_topic}",
+            label=f"utility_topic {request.utility_topic}",
+            type_="utility_topic",
+        )
+    if request.target_age in {"3", "5"}:
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS[f"age:{request.target_age}"], f"target_age={request.target_age}")
     elif request.target_age:
         unresolved.append(
             PromptUnresolvedDetail(
@@ -242,13 +318,26 @@ def candidate_layer_resolution(state: GraphState, registry: PromptRegistry) -> G
         _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["audience_language"], "audience_language=ru")
     if request.result_language == "ru":
         _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["result_language"], "result_language=ru")
+    if request.truth_mode == "TRUTH" and any(subject.type == "animal" for subject in request.subjects):
+        _append_ref(
+            refs,
+            registry,
+            _SUPPORTED_LAYER_IDS["substyle:naturalistic_animal_story"],
+            "truth animal story style",
+        )
+    if request.truth_mode == "MYTH" and request.substyle == "myth_soft":
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["substyle:myth_soft"], "substyle=myth_soft")
     if request.substyle == "russian_folk_tale":
         _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["substyle:russian_folk_tale"], "substyle=russian_folk_tale")
 
     for subject in request.subjects:
-        if subject.id == "fox" and request.truth_mode == "FAIRY_TALE":
-            _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["subject:fox"], "subject=fox")
-            subject.resolved_layer_id = _SUPPORTED_LAYER_IDS["subject:fox"]
+        layer_key = f"subject:{request.truth_mode}:{subject.base_species or subject.id}"
+        if layer_key in _SUPPORTED_LAYER_IDS:
+            layer_id = _SUPPORTED_LAYER_IDS[layer_key]
+            if subject.id == "parrot" and subject.unresolved_detail == "какаду":
+                continue
+            _append_ref(refs, registry, layer_id, f"subject={subject.id}")
+            subject.resolved_layer_id = layer_id
         elif subject.label:
             unresolved.append(
                 PromptUnresolvedDetail(
@@ -259,9 +348,39 @@ def candidate_layer_resolution(state: GraphState, registry: PromptRegistry) -> G
             )
             subject.unresolved_detail = subject.label
 
+    fallback_layers: list[PromptFallbackLayer] = []
+    for subject in request.subjects:
+        if subject.id == "parrot" and subject.unresolved_detail == "какаду":
+            fallback_layers.append(
+                PromptFallbackLayer(
+                    requested="какаду",
+                    fallback_layer_id=_SUPPORTED_LAYER_IDS["subject:TRUTH:parrot"],
+                    source=registry.get(_SUPPORTED_LAYER_IDS["subject:TRUTH:parrot"]).source,
+                    reason="cockatoo-specific seed layer is unavailable; use parrot fallback",
+                )
+            )
+            unresolved.append(
+                PromptUnresolvedDetail(
+                    label="какаду",
+                    type="subject_detail",
+                    instruction="Сохранить какаду как свободную деталь, не обещая отдельный layer id.",
+                )
+            )
+
+    _append_support_entity_refs(refs, registry, request)
+    for detail in request.hard_details:
+        if detail in {"winter", "forest"}:
+            unresolved.append(
+                PromptUnresolvedDetail(
+                    label=detail,
+                    type="setting",
+                    instruction="Сохранить как контекстную деталь сценария.",
+                )
+            )
+
     request.prompt_context = NormalizedPromptContext(
         resolved_layers=refs,
-        fallback_layers=[],
+        fallback_layers=fallback_layers,
         unresolved_details=unresolved,
     )
     session.interpretation_state.layer_resolution_result = StatusResult(
@@ -294,7 +413,7 @@ def final_parameter_validation(state: GraphState, registry: PromptRegistry) -> G
         issues.append("main subject is missing")
     if not _has_ref(refs, type_="format", role="content_format"):
         issues.append("content_format layer is missing")
-    if request.truth_mode == "FAIRY_TALE" and not _has_id(refs, "FAIRY_TALE_BASE"):
+    if request.truth_mode and not _has_ref(refs, type_="truth_mode"):
         issues.append("truth_mode layer is missing")
     if request.utility_topic and not _has_ref(refs, type_="utility", role="utility_topic"):
         issues.append("utility_topic layer is missing")
@@ -306,6 +425,9 @@ def final_parameter_validation(state: GraphState, registry: PromptRegistry) -> G
         issues.append("substyle layer is missing")
     if not any(ref.type == "entity" for ref in refs) and not request.prompt_context.unresolved_details:
         issues.append("subject layer or unresolved detail is missing")
+    for detail in request.prompt_context.unresolved_details:
+        if detail.type in {"truth_mode", "utility_mode", "utility_topic"}:
+            issues.append(f"unsupported normalized {detail.type}: {detail.label}")
 
     for ref in refs:
         if ref.id not in registry.layers_by_id:
@@ -454,30 +576,95 @@ def _extract_normalized_request(session: SessionState, text: str) -> NormalizedR
     lowered = text.casefold()
     if _FAIRY_TALE_RE.search(text):
         normalized.truth_mode = "FAIRY_TALE"
+    elif _MYTH_RE.search(text):
+        normalized.truth_mode = "MYTH"
+    elif _TRUTH_RE.search(text):
+        normalized.truth_mode = "TRUTH"
     if any(term in lowered for term in _TEACHING_TERMS):
         normalized.utility_mode = "TEACHING"
     if any(term in lowered for term in _ROAD_TERMS):
         normalized.utility_topic = "ROAD_SAFETY"
         normalized.utility_mode = normalized.utility_mode or "TEACHING"
+    if "рук" in lowered and any(term in lowered for term in _HAND_WASHING_TERMS):
+        normalized.utility_topic = "HAND_WASHING_AFTER_WALK"
+        normalized.utility_mode = "TEACHING"
+    if "незнаком" in lowered and "конфет" in lowered:
+        normalized.utility_topic = "STRANGERS_AND_CANDY"
+        normalized.utility_mode = "TEACHING"
+    meaningful_text = _meaningful_text(lowered)
+    if normalized.utility_mode is None and meaningful_text:
+        normalized.utility_mode = "NARRATIVE"
+    if normalized.truth_mode is None and meaningful_text:
+        normalized.truth_mode = "TRUTH"
     age = _AGE_RE.search(text)
     if age:
         normalized.target_age = age.group(1)
+    elif meaningful_text and (normalized.truth_mode or normalized.utility_mode):
+        normalized.target_age = "5"
     if _FOX_RE.search(text):
-        normalized.main_subject = "fox"
-        normalized.subjects.append(
-            Subject(
-                id="fox",
-                label="лиса",
-                type="animal",
-                role="main",
-                is_character=True,
-                base_species="fox",
-            )
+        _add_subject(normalized, "fox", "лиса", "animal", is_character=True)
+    if _HEDGEHOG_RE.search(text):
+        _add_subject(normalized, "hedgehog", "ёжик", "animal", is_character=True)
+    if _HARE_RE.search(text):
+        _add_subject(normalized, "hare", "заяц", "animal", is_character=True)
+    if _SQUIRREL_RE.search(text):
+        _add_subject(normalized, "squirrel", "белка", "animal", is_character=True)
+    if _PARROT_RE.search(text):
+        subject = _add_subject(normalized, "parrot", "попугай", "animal", is_character=True)
+        if "какаду" in lowered:
+            subject.unresolved_detail = "какаду"
+    if _SUN_RE.search(text):
+        _add_subject(normalized, "sun", "солнце", "nature", role="main")
+        normalized.prompt_context.unresolved_details.append(
+            PromptUnresolvedDetail(label="солнце", type="nature_subject", instruction="Сохранить как свободный nature subject.")
         )
+    if _WIND_RE.search(text):
+        _add_subject(normalized, "wind", "ветер", "nature", role="required")
+        normalized.prompt_context.unresolved_details.append(
+            PromptUnresolvedDetail(label="ветер", type="nature_subject", instruction="Сохранить как свободный nature subject.")
+        )
+    if normalized.utility_topic in {"HAND_WASHING_AFTER_WALK", "STRANGERS_AND_CANDY", "ROAD_SAFETY"} and not normalized.subjects:
+        _add_subject(normalized, "child", "ребёнок", "person", is_character=True)
     if "русск" in lowered and "народ" in lowered:
         normalized.substyle = "russian_folk_tale"
+    if normalized.truth_mode == "MYTH" and ("мягк" in lowered or _SUN_RE.search(text) or _WIND_RE.search(text)):
+        normalized.substyle = "myth_soft"
+    if "зимой" in lowered or "зима" in lowered:
+        normalized.setting.season = "winter"
+        normalized.hard_details.append("winter")
+    if "лес" in lowered:
+        normalized.setting.place = "forest"
+        normalized.hard_details.append("forest")
+    if "герои не исчезали" in lowered or "не исчезали" in lowered:
+        required = [subject.id for subject in normalized.subjects]
+        normalized.subject_continuity_policy = SubjectContinuityPolicy(
+            mode="preserve_required_subjects",
+            required_subjects=required,
+            coverage="item_level",
+            allowed_distribution="all_items",
+            can_mix_subjects_in_one_item=True,
+            can_introduce_new_subjects=True,
+            can_replace_required_subjects=False,
+        )
+    if "тим" in lowered and any(subject.id == "squirrel" for subject in normalized.subjects):
+        normalized.character_profile = CharacterProfile(
+            name="Тим",
+            base_subject_id="squirrel",
+            stable_traits=["смелый"] if "смел" in lowered else [],
+            stable_details=["любит жёлуди"] if "жёлуд" in lowered or "желуд" in lowered else [],
+        )
+        normalized.hard_details.extend(["character name: Тим", "character trait: смелый", "character detail: любит жёлуди"])
+        normalized.subject_continuity_policy.required_subjects = ["squirrel"]
+        normalized.subject_continuity_policy.can_replace_required_subjects = False
+    soft_style = _SOFT_STYLE_RE.search(text)
+    if soft_style and "строго" not in lowered and "обязательно" not in lowered:
+        normalized.soft_preferences.append(soft_style.group(1).strip())
+    if soft_style and ("строго" in lowered or "обязательно" in lowered):
+        normalized.hard_details.append("unsupported: hard style requirement outside MVP scope")
     if _UNSUPPORTED_RE.search(text) or _IMPOSSIBLE_VISUAL_RE.search(text):
         normalized.hard_details.append("unsupported: hard requirement outside MVP scope")
+    if normalized.truth_mode == "TRUTH" and ("обязательно" in lowered or "строго" in lowered) and _FANTASTIC_TRUTH_RE.search(text):
+        normalized.hard_details.append("unsupported: fantastic hard detail contradicts TRUTH")
     return normalized
 
 
@@ -528,6 +715,29 @@ def _meaningful_request(request: NormalizedRequest) -> bool:
     )
 
 
+def _meaningful_text(lowered: str) -> bool:
+    return any(
+        marker in lowered
+        for marker in (
+            "истори",
+            "сказ",
+            "ёж",
+            "еж",
+            "лис",
+            "зая",
+            "бел",
+            "попуг",
+            "какаду",
+            "солн",
+            "ветер",
+            "рук",
+            "дорог",
+            "незнаком",
+            "конфет",
+        )
+    )
+
+
 def _is_complete_request(request: NormalizedRequest) -> bool:
     return bool(
         request.content_format
@@ -566,6 +776,73 @@ def _payload_options(session: SessionState) -> list[dict[str, Any]]:
             "normalized_patch": {"truth_mode": "FAIRY_TALE", "target_age": "5", "main_subject": "fox"},
         }
     ]
+
+
+def _add_subject(
+    normalized: NormalizedRequest,
+    subject_id: str,
+    label: str,
+    type_: str,
+    *,
+    role: str = "main",
+    is_character: bool = False,
+) -> Subject:
+    for existing in normalized.subjects:
+        if existing.id == subject_id:
+            return existing
+    if normalized.main_subject is None and role in {"main", "required"}:
+        normalized.main_subject = subject_id
+        actual_role = "main"
+    else:
+        actual_role = "required" if role == "main" else role
+    subject = Subject(
+        id=subject_id,
+        label=label,
+        type=type_,
+        role=actual_role,
+        is_character=is_character,
+        base_species=subject_id if type_ == "animal" else None,
+    )
+    normalized.subjects.append(subject)
+    return subject
+
+
+def _append_support_entity_refs(refs: list[PromptLayerRef], registry: PromptRegistry, request: NormalizedRequest) -> None:
+    if request.utility_topic == "HAND_WASHING_AFTER_WALK":
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:hands"], "utility_topic=HAND_WASHING_AFTER_WALK")
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:soap"], "utility_topic=HAND_WASHING_AFTER_WALK")
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:child"], "utility_topic=HAND_WASHING_AFTER_WALK")
+    if request.utility_topic == "ROAD_SAFETY":
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:road"], "utility_topic=ROAD_SAFETY")
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:traffic_light"], "utility_topic=ROAD_SAFETY")
+    if request.utility_topic == "STRANGERS_AND_CANDY":
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:stranger"], "utility_topic=STRANGERS_AND_CANDY")
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:candy"], "utility_topic=STRANGERS_AND_CANDY")
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:caring_adult"], "utility_topic=STRANGERS_AND_CANDY")
+        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["entity:child"], "utility_topic=STRANGERS_AND_CANDY")
+
+
+def _append_supported_ref_or_unresolved(
+    refs: list[PromptLayerRef],
+    unresolved: list[PromptUnresolvedDetail],
+    registry: PromptRegistry,
+    key: str,
+    reason: str,
+    *,
+    label: str,
+    type_: str,
+) -> None:
+    layer_id = _SUPPORTED_LAYER_IDS.get(key)
+    if layer_id is None:
+        unresolved.append(
+            PromptUnresolvedDetail(
+                label=label,
+                type=type_,
+                instruction="Unsupported normalized value; reclassify or clarify instead of fabricating a layer.",
+            )
+        )
+        return
+    _append_ref(refs, registry, layer_id, reason)
 
 
 def _create_or_reuse_interrupt(

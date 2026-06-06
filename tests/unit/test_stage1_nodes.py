@@ -193,6 +193,8 @@ def test_candidate_layer_resolution_writes_canonical_prompt_context_refs():
         "LANGUAGE_RU_AUDIENCE",
         "LANGUAGE_RU_RESULT",
         "FAIRY_TALE_ANIMAL_FOX",
+        "ENTITY_ROAD",
+        "ENTITY_TRAFFIC_LIGHT",
     ]
     assert all(ref.source for ref in refs)
     assert {(ref.id, ref.type, ref.role) for ref in refs} >= {
@@ -206,6 +208,45 @@ def test_candidate_layer_resolution_writes_canonical_prompt_context_refs():
     layer_result = result["session"].interpretation_state.layer_resolution_result
     assert layer_result.status == "resolved"
     assert layer_result.details["resolved_layer_ids"] == [ref.id for ref in refs]
+
+
+def test_candidate_layer_resolution_preserves_unknown_modes_as_unresolved_details():
+    registry = PromptRegistry.load(PROMPTS_ROOT)
+    session = _analyzed_session()
+    request = session.normalized_request
+    request.truth_mode = "UNKNOWN_TRUTH"
+    request.utility_mode = "UNKNOWN_UTILITY"
+    request.utility_topic = "UNKNOWN_TOPIC"
+
+    result = candidate_layer_resolution(to_graph_state(session), registry)
+
+    normalized = result["session"].normalized_request
+    labels = {detail.label for detail in normalized.prompt_context.unresolved_details}
+    assert result["session"].interpretation_state.layer_resolution_result.status == "resolved"
+    assert {"truth_mode UNKNOWN_TRUTH", "utility_mode UNKNOWN_UTILITY", "utility_topic UNKNOWN_TOPIC"} <= labels
+    assert "CONTENT_FORMAT_STORY" in {ref.id for ref in normalized.prompt_context.resolved_layers}
+
+    validation = final_parameter_validation(result, registry)["session"].interpretation_state.validation_result
+    assert validation.status == "fail_reclassify"
+    assert "truth_mode layer is missing" in validation.issues
+    assert "utility_topic layer is missing" in validation.issues
+
+
+def test_final_parameter_validation_reclassifies_single_unknown_utility_mode():
+    registry = PromptRegistry.load(PROMPTS_ROOT)
+    session = _analyzed_session()
+    request = session.normalized_request
+    request.truth_mode = "FAIRY_TALE"
+    request.utility_mode = "UNKNOWN_UTILITY"
+    request.utility_topic = None
+
+    state = candidate_layer_resolution(to_graph_state(session), registry)
+
+    labels = {detail.label for detail in state["session"].normalized_request.prompt_context.unresolved_details}
+    validation = final_parameter_validation(state, registry)["session"].interpretation_state.validation_result
+    assert "utility_mode UNKNOWN_UTILITY" in labels
+    assert validation.status == "fail_reclassify"
+    assert "unsupported normalized utility_mode: utility_mode UNKNOWN_UTILITY" in validation.issues
 
 
 def test_final_parameter_validation_passes_for_fully_resolved_request():
