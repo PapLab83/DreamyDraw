@@ -99,6 +99,40 @@ def test_stage1_2_graph_reaches_approved_texts_with_scripted_llm_provider(tmp_pa
     assert "stage 3" not in state_text
 
 
+def test_stage1_2_graph_writes_llm_debug_artifacts_for_bad_scorer_response(tmp_path) -> None:
+    class BadScorerProvider(ScriptedLLMProvider):
+        def generate_text(self, prompt: str) -> str:
+            self.prompts.append(prompt)
+            if len(self.prompts) == 1:
+                return json.dumps({"candidates": [{"theme": "Лиса", "text": "Лиса гуляла по лесу."}]})
+            if len(self.prompts) == 2:
+                return json.dumps({"decisions": []})
+            return json.dumps({"scores": [{"candidate_id": "wrong-id", "hard_gates": {}, "score_components": {}, "total_score": 0.5}]})
+
+    provider = BadScorerProvider()
+    debug_dir = tmp_path / "debug" / "llm"
+    executor = build_stage2_text_executor(
+        executor_type="llm",
+        llm_provider=provider,
+        model_name="scripted",
+        debug_artifact_dir=debug_dir,
+    )
+    orchestrator = Stage1_2Orchestrator(
+        storage=JSONStorage(tmp_path),
+        text_executor=executor,
+        candidate_count=1,
+    )
+    session = orchestrator.start_session(REQUEST, current_config={"count": 1})
+
+    result = orchestrator.run_pipeline(session.session_id)
+
+    assert result.session.shortage.status == "not_enough_valid_candidates"
+    scorer_artifact = next(path for path in debug_dir.glob("*.json") if "scorer" in path.name)
+    artifact = json.loads(scorer_artifact.read_text(encoding="utf-8"))
+    assert artifact["diagnostics"]["valid_items"] == 0
+    assert artifact["diagnostics"]["rejected_items"][0]["reason"] == "unknown_candidate_id"
+
+
 def _run_cli(tmp_path, *args: str, extra_env: dict[str, str] | None = None):
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)

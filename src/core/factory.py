@@ -45,6 +45,8 @@ def build_stage2_text_executor(
     provider_name: str | None = None,
     llm_provider: BaseLLMProvider | None = None,
     model_name: str | None = None,
+    debug_artifact_dir: str | None = None,
+    debug_to_stderr: bool = False,
 ):
     e_type = str(executor_type).strip().lower()
     if e_type == "mock":
@@ -55,7 +57,12 @@ def build_stage2_text_executor(
     effective_model = model_name or settings.LLM_MODEL
     if hasattr(provider, "model"):
         setattr(provider, "model", effective_model)
-    return LLMStage2TextExecutor(provider, model_name=effective_model)
+    return LLMStage2TextExecutor(
+        provider,
+        model_name=effective_model,
+        debug_artifact_dir=debug_artifact_dir,
+        debug_to_stderr=debug_to_stderr,
+    )
 
 
 def validate_llm_provider_config(provider_name: str | None = None) -> None:

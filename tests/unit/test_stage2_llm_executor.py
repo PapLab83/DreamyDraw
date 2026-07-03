@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -63,6 +64,8 @@ def test_generate_candidates_parses_fenced_json_and_limits_count() -> None:
     assert executor.llm_call_count == 1
     assert executor.parse_failure_count == 0
     _assert_no_stage3_words(provider.prompts[0])
+    assert '"json_contract":' not in provider.prompts[0]
+    assert "top-level key" in provider.prompts[0]
 
 
 def test_generate_candidates_invalid_json_returns_empty_list() -> None:
@@ -131,6 +134,39 @@ def test_score_candidates_clamps_scores_and_requires_hard_gates() -> None:
             "total_score": 1.0,
         }
     ]
+
+
+def test_debug_artifacts_capture_raw_scorer_response_and_rejection_reason(tmp_path: Path) -> None:
+    provider = ScriptedLLMProvider(
+        [
+            json.dumps(
+                {
+                    "scores": [
+                        {
+                            "candidate_id": "not-c01",
+                            "hard_gates": {gate: "pass" for gate in REQUIRED_HARD_GATES},
+                            "score_components": {"novelty": 0.8},
+                            "total_score": 0.8,
+                        }
+                    ]
+                }
+            )
+        ]
+    )
+    executor = LLMStage2TextExecutor(provider, max_retries=0, debug_artifact_dir=tmp_path)
+
+    result = executor.score_candidates(_runtime_context())
+
+    assert result == []
+    artifacts = list(tmp_path.glob("*.json"))
+    assert len(artifacts) == 1
+    artifact = json.loads(artifacts[0].read_text(encoding="utf-8"))
+    assert artifact["stage"] == "scorer"
+    assert artifact["status"] == "completed"
+    assert artifact["raw_response"]
+    assert artifact["diagnostics"]["raw_items"] == 1
+    assert artifact["diagnostics"]["valid_items"] == 0
+    assert artifact["diagnostics"]["rejected_items"][0]["reason"] == "unknown_candidate_id"
 
 
 def test_validate_candidate_parse_failure_is_not_accepted() -> None:
