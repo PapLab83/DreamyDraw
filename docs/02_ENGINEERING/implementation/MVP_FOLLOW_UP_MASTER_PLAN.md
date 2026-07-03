@@ -28,7 +28,7 @@ Audience: developers, project lead, technical reviewer
 3. Подготовить Implementation Plan (отдельный файл или PR-comment / doc)
 4. Согласовать план с lead (+ technical reviewer при необходимости)
 5. Реализовать
-6. Обновить статус задачи в этом документе + decision log при новых решениях
+6. Обновить статус задачи в §7; новые продуктовые решения — через lead, при необходимости строка в §6 Changelog
 ```
 
 ### 0.2 Handoff разработчику (шаблон для чата)
@@ -81,21 +81,27 @@ Owner: <имя>
 - **In scope:** Stage 1 interpretation, prompt registry/lookup/composition, Stage 2 text pipeline до `approved_texts`
 - **Out of scope:** image generation, animation, Stage 3, legacy CLI `fast/check` как целевой продукт
 
-Опорные Wave-документы:
+Опорные Wave-документы с описанием найденных дефектов и manual matrix:
 
 - `WAVE_11_FINAL.md`
 - `WAVE_11_FOLLOW_UP_DEVELOPMENT_TASKS.md`
 
-### 1.4 Принятые продуктовые решения (decision log)
+### 1.4 Почему этот backlog
 
-| ID | Решение | Дата |
-|----|---------|------|
-| D-01 | **`truth_mode` по умолчанию = TRUTH (Правда)** — основной режим MVP; синхронизировать код и продуктовые доки | 2026-07-03 |
-| D-02 | Если возраст не указан → **`target_age = 5`** (текущее поведение кода сохраняем) | 2026-07-03 |
-| D-03 | MVP seed prompt layers для возраста: **только 3 и 5**; другие возраста — best-effort через unresolved detail | 2026-07-03 |
-| D-04 | **TRUTH + животные:** по умолчанию **не персонаж** (`is_character = false`), без выдуманного характера/имени | 2026-07-03 |
-| D-05 | Повтор тем между **разными сессиями** — не блокер MVP | 2026-07-03 |
-| D-06 | Legacy code/prompts/docs — удалять **после** стабилизации Stage 1–2 и manual matrix (§3.5) | 2026-07-03 |
+После Wave 11 подключили real LLM для Stage 2. Автотесты на mock/scripted executors проходят, но **ручные прогоны** показали расхождение docs ↔ code ↔ ожидания продукта.
+
+Задачи §3 сгруппированы по этим темам (подробности — в каждой задаче, не здесь):
+
+| Тема | Задача |
+|------|--------|
+| Доки обещают одно, код/lead — другое (defaults, scope Stage 1) | §3.1, позже §3.6 |
+| Запрос пользователя не превращается в prompt layers (стиль, параметры) | §3.2 |
+| `truth_mode=TRUTH` в state, но текст на Stage 2 сказочный | §3.3 |
+| Нет лимита длины approved text | §3.4 |
+| Нужен structured manual pass после фиксов | §3.5 |
+| Legacy мешает ориентироваться в репо | §3.7 |
+
+Конкретные продуктовые решения (default режима, возраст, персонажи в TRUTH и т.д.) **не сводятся в одну таблицу** — они появляются в Problem / Open questions соответствующей задачи и фиксируются в Implementation Plan после согласования с lead.
 
 ---
 
@@ -178,11 +184,11 @@ tests/integration/test_stage1_2_*.py
 
 #### Problem
 
-Продуктовые документы расходятся с принятыми решениями и текущим MVP:
+Продуктовые и engineering-доки расходятся с тем, как MVP **фактически** работает и с тем, что lead хочет зафиксировать на ближайший sprint:
 
-- в `PRODUCT_VISION.md` default `truth_mode` = **Сказка**, решение lead: **Правда (TRUTH)**;
-- не зафиксировано явно: MVP ages **3 и 5**, default age **5**;
-- Stage 1 в коде — regex MVP, в спеке — LLM `input_analysis` (ожидания разработчиков могут расходиться).
+- в `PRODUCT_VISION.md` default `truth_mode` = **Сказка**, тогда как для MVP lead ориентируется на **Правду (TRUTH)** как основной режим — это нужно явно согласовать в тексте доков;
+- не описано явно: seed layers только для возрастов **3 и 5**, а при отсутствии возраста в запросе код ставит **5** (`stage1.py`);
+- в orchestration spec Stage 1 описан как LLM `input_analysis`, в коде — regex/heuristics; без ремарки разработчики будут ожидать другое.
 
 #### Possible approaches (не финально)
 
@@ -198,7 +204,6 @@ tests/integration/test_stage1_2_*.py
 - [ ] Зафиксировано: MVP seed ages **3, 5**; при отсутствии возраста в запросе → **5**
 - [ ] Краткая ремарка: Stage 1 MVP = deterministic extraction + registry matching; полный LLM-интерпретатор — follow-up
 - [ ] Ссылка на `MVP_FOLLOW_UP_MASTER_PLAN.md` из runbook или implementation index (опционально)
-- [ ] Нет противоречий с decision log §1.4
 
 #### Out of scope
 
@@ -236,18 +241,11 @@ Stage 1 извлекает параметры через **regex/heuristics** (`
 Факт (Wave 11): substyle None, layer отсутствует
 ```
 
-Системная формулировка:
-
-```text
-Pipeline лучше сохраняет layer ids, чем operationalizes semantics —
-на Stage 1 проблема в том, что layer id часто не попадает в state вообще.
-```
-
 Связанные подпроблемы в scope этой задачи:
 
 - matching style/substyle/reference labels;
 - unsupported vs missed style (см. §3.2.1);
-- **D-04:** TRUTH + animals → `is_character = false` by default.
+- в режиме TRUTH животное из запроса («про лису») сейчас помечается как персонаж (`is_character=true`), хотя продуктово это скорее **тема/ subject**, не герой с характером — поведение нужно согласовать и поправить (см. Open questions).
 
 #### §3.2.1 Unsupported / missed styles (в scope §3.2, не отдельный этап)
 
@@ -283,10 +281,11 @@ raw text
 - Полный LLM `input_analysis` с confidence по всем base params (TARGET §4.5)
 - Пакетное уточнение неполных запросов
 
-**`is_character` (D-04):**
+**`is_character` для TRUTH (draft, на согласование в Implementation Plan):**
 
-- TRUTH + animal subject → `is_character = false` unless explicit character markers («Тим», «назови его…»)
-- Проверить downstream: `character_consistency` gate не должен требовать persona там, где её нет
+- TRUTH + animal без явного запроса персонажа → `is_character = false`
+- Явные маркеры («бельчонок Тим», «назови его…») — отдельная ветка интерпретации
+- Проверить downstream: gate `character_consistency` не должен требовать persona там, где её нет
 
 #### Draft acceptance criteria (Phase 1 minimum)
 
@@ -320,6 +319,7 @@ raw text
 - RapidFuzz в dependencies — да/нет для Phase 1?
 - Где жить phrase extractor — отдельный модуль vs `lookup.py`?
 - Формат поля: `substyle` string vs resolved reference label id?
+- TRUTH + «про лису»: всегда `is_character=false` или уточнять у пользователя?
 
 #### Deliverable before code
 
@@ -334,7 +334,7 @@ raw text
 | **Status** | `draft` |
 | **Owner** | Dev C or Dev B (after / parallel to §3.2) |
 | **Estimate** | 3–5 days |
-| **Depends on** | Желательно D-04 / §3.2 для `is_character`; можно начинать анализ параллельно |
+| **Depends on** | Желательно после/параллельно с §3.2 (`is_character`); анализ можно начать сразу |
 | **Blocks** | §3.5 manual tests (requests #2, #8, #13) |
 
 #### Problem
@@ -407,7 +407,7 @@ Lightweight keyword/regex gate before approve — обсудить false positiv
 
 Approved texts могут быть **несколько абзацев**; продукт ожидает **короткий текст** (ориентир: 3–5 предложений, для младшего возраста — короче). Hard gate / refiner policy отсутствует.
 
-Lead decision (draft): **начать просто** — одно правило «как для 3 лет» для всех возрастов MVP.
+Lead ориентир (draft, уточнить в Implementation Plan): **начать просто** — одно правило «как для 3 лет» для всех возрастов MVP.
 
 #### Possible approaches (не финально)
 
@@ -520,7 +520,7 @@ For each request record:
 - [ ] `ARCHITECTURE.md` distinguishes legacy vs Stage 1–2 MVP
 - [ ] Runbook matches actual CLI flags and executors
 - [ ] No doc promises full LLM Stage 1 if not implemented
-- [ ] Decision log §1.4 reflected everywhere defaults mentioned
+- [ ] Defaults из §3.1 (truth, age) отражены везде, где в docs упоминаются «значения по умолчанию»
 
 #### Out of scope
 
@@ -632,7 +632,8 @@ Status: draft | under_review | approved
 
 | Date | Change |
 |------|--------|
-| 2026-07-03 | Initial master plan: §3.1–§3.7, decision log D-01–D-06, reading guide |
+| 2026-07-03 | Initial master plan |
+| 2026-07-03 | §1.4: backlog context вместо decision log; решения перенесены в задачи |
 
 ---
 
