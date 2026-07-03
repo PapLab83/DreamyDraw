@@ -1,0 +1,649 @@
+# DreamyDraw MVP Follow-Up — Master Plan
+
+Status: **active backlog for lead → developer handoff**  
+Last updated: 2026-07-03  
+Audience: developers, project lead, technical reviewer
+
+---
+
+## 0. Как пользоваться этим документом
+
+### 0.1 Назначение
+
+Этот документ **не является финальной спецификацией реализации**.
+
+Он фиксирует:
+
+- контекст проекта и границы MVP;
+- приоритетный backlog задач после Wave 11;
+- формулировку **проблем** и **возможных направлений решения**;
+- черновые acceptance criteria и open questions;
+- что читать, а что сознательно не читать.
+
+**Ожидаемый workflow для каждой задачи:**
+
+```text
+1. Прочитать §0 + §1 + Reading guide + свой § задачи
+2. Провести дополнительный анализ кода/доков по задаче
+3. Подготовить Implementation Plan (отдельный файл или PR-comment / doc)
+4. Согласовать план с lead (+ technical reviewer при необходимости)
+5. Реализовать
+6. Обновить статус задачи в этом документе + decision log при новых решениях
+```
+
+### 0.2 Handoff разработчику (шаблон для чата)
+
+```text
+Задача: §3.X — <название>
+Документ: docs/02_ENGINEERING/implementation/MVP_FOLLOW_UP_MASTER_PLAN.md
+Прочитать: §0, §1, §2, §3.X
+Перед кодом: прислать Implementation Plan на согласование
+Owner: <имя>
+Не трогать: <ссылка на out of scope задачи>
+```
+
+### 0.3 Статусы задач
+
+| Status | Meaning |
+|--------|---------|
+| `draft` | Описана проблема, реализация не начата |
+| `analysis` | Исполнитель изучает код/доки |
+| `plan_review` | План реализации на согласовании |
+| `in_progress` | Код / doc changes в работе |
+| `done` | Acceptance выполнен, PR merged |
+| `blocked` | Ждёт другую задачу или продуктовое решение |
+
+---
+
+## 1. Контекст проекта (кратко)
+
+### 1.1 Продукт
+
+**DreamyDraw** — генератор познавательно-развлекательного контента для детей **3–5 лет** (в vision — более точные возрастные ступени). Текущий MVP-формат: **короткая иллюстрированная история** (текст + вопросы; картинки — за пределами Stage 1–2 MVP).
+
+Ключевые оси контента:
+
+- **`truth_mode`**: Правда / Миф / Сказка
+- стиль текста и (в будущем) картинки
+- в перспективе — `utility_mode` (повествование / поучительное / английский)
+
+### 1.2 Два контура в репозитории
+
+| Контур | Entry point | Scope | Статус |
+|--------|-------------|-------|--------|
+| **Stage 1–2 MVP (целевой)** | `scripts/run_stage1_2_mvp.py` → `Stage1_2Orchestrator` | LangGraph: интерпретация запроса → `approved_texts` | **активная разработка** |
+| **Legacy** | `main.py` → `Orchestrator` | Старый pipeline: plan → text → image | **deprecated, удаление — задача §3.7** |
+
+Все задачи этого backlog относятся к **Stage 1–2 MVP**, если не указано иное.
+
+### 1.3 Текущая граница MVP
+
+- **In scope:** Stage 1 interpretation, prompt registry/lookup/composition, Stage 2 text pipeline до `approved_texts`
+- **Out of scope:** image generation, animation, Stage 3, legacy CLI `fast/check` как целевой продукт
+
+Опорные Wave-документы:
+
+- `WAVE_11_FINAL.md`
+- `WAVE_11_FOLLOW_UP_DEVELOPMENT_TASKS.md`
+
+### 1.4 Принятые продуктовые решения (decision log)
+
+| ID | Решение | Дата |
+|----|---------|------|
+| D-01 | **`truth_mode` по умолчанию = TRUTH (Правда)** — основной режим MVP; синхронизировать код и продуктовые доки | 2026-07-03 |
+| D-02 | Если возраст не указан → **`target_age = 5`** (текущее поведение кода сохраняем) | 2026-07-03 |
+| D-03 | MVP seed prompt layers для возраста: **только 3 и 5**; другие возраста — best-effort через unresolved detail | 2026-07-03 |
+| D-04 | **TRUTH + животные:** по умолчанию **не персонаж** (`is_character = false`), без выдуманного характера/имени | 2026-07-03 |
+| D-05 | Повтор тем между **разными сессиями** — не блокер MVP | 2026-07-03 |
+| D-06 | Legacy code/prompts/docs — удалять **после** стабилизации Stage 1–2 и manual matrix (§3.5) | 2026-07-03 |
+
+---
+
+## 2. Reading guide
+
+### 2.1 Обязательно (все исполнители, ~30–45 мин)
+
+| Документ | Зачем |
+|----------|-------|
+| `docs/01_PRODUCT/WHAT_IS_DREAMYDRAW.md` | Продукт «как для пользователя» |
+| `docs/01_PRODUCT/PRODUCT_VISION.md` | Настройки, сценарии, принципы (после §3.1 — проверить defaults) |
+| `docs/02_ENGINEERING/TARGET_ORCHESTRATION_LOGIC.md` | §4 Stage 1, §5 Stage 2 — бизнес-логика |
+| `docs/02_ENGINEERING/ORCHESTRATOR_SPEC.md` | Индекс; далее `orchestration/00_OVERVIEW.md` |
+| `docs/02_ENGINEERING/orchestration/01_STAGE_1_INTERPRETATION.md` | Целевые ноды Stage 1 |
+| `docs/02_ENGINEERING/orchestration/02_STAGE_2_TEXT_PIPELINE.md` | Целевые ноды Stage 2 |
+| `implementation/WAVE_11_FINAL.md` | Known issues + manual test appendix |
+| `implementation/WAVE_11_FOLLOW_UP_DEVELOPMENT_TASKS.md` | Chukovsky + TRUTH defects |
+
+### 2.2 По задаче
+
+| Задача | Дополнительно читать |
+|--------|----------------------|
+| §3.1 Doc mini-pass | `PRODUCT_VISION.md` §2 defaults; `CONFIGURATION_CONSTANTS.md` при необходимости |
+| §3.2 Stage 1 | `contracts/NORMALIZED_STATE_CONTRACT.md`, `PROMPT_LOOKUP_CONTRACT.md`, `src/core/nodes/stage1.py`, `src/core/prompts/lookup.py`, `prompts/.../CHUKOVSKY_STYLE.md` |
+| §3.3 Stage 2 TRUTH | `src/core/stage2_llm_executor.py`, `src/core/nodes/stage2.py`, `prompts/truth_modes/TRUTH/BASE.md`, entity layers (FOX, HEDGEHOG, …) |
+| §3.4 Length | `orchestration/02_STAGE_2_TEXT_PIPELINE.md` § validator/refiner; age layers в `prompts/` |
+| §3.5 Manual tests | `STAGE_1_2_MVP_RUNBOOK.md`, `STAGE_1_2_MVP_ACCEPTANCE_CHECKLIST.md` |
+| §3.6 Doc alignment | `ARCHITECTURE.md`, `ROADMAP.md`, `MODULES.md` — сверка с фактом |
+| §3.7 Legacy cleanup | `main.py`, `src/core/orchestrator.py`, `implementation/WAVE_0_LEGACY_POLICY.md` |
+
+### 2.3 Не читать / не тратить время (пока)
+
+| Путь | Причина |
+|------|---------|
+| `docs/03_PROMPTS/` | Legacy artifact; планируется перенос/удаление (§3.7) |
+| `docs/99_BACKUP/` | Архив, не source of truth |
+| Legacy orchestrator code | Только для §3.7 audit; не использовать как образец для Stage 1–2 |
+
+### 2.4 Код — минимальный orientation
+
+```text
+scripts/run_stage1_2_mvp.py     # CLI Stage 1–2 MVP
+src/core/stage1_2_orchestrator.py
+src/core/nodes/stage1.py        # Stage 1 (сейчас regex/heuristics)
+src/core/nodes/stage2.py        # Stage 2 graph nodes
+src/core/stage2_llm_executor.py # Real LLM Stage 2
+src/core/prompts/               # registry, lookup, composer
+prompts/                        # seed prompt layers (YAML + body)
+tests/helpers/stage1_2_golden.py
+tests/integration/test_stage1_2_*.py
+```
+
+---
+
+## 3. Backlog (приоритетный порядок)
+
+### Зависимости (overview)
+
+```text
+§3.1 Doc mini-pass ──────────────┐
+                                 ├──► §3.5 Manual tests ──► §3.6 Doc alignment ──► §3.7 Legacy
+§3.2 Stage 1 interpretation ───┤
+§3.3 Stage 2 TRUTH ────────────┤
+§3.4 Length limits ────────────┘
+
+§3.2 и §3.3 могут идти параллельно разными исполнителями после §3.1 (или параллельно с §3.1).
+§3.5 — только после §3.2–§3.4 (минимум Block 1 из WAVE_11).
+```
+
+---
+
+### §3.1 Doc mini-pass
+
+| Field | Value |
+|-------|-------|
+| **Status** | `draft` |
+| **Owner** | Dev A (docs / любой исполнитель без deep code) |
+| **Estimate** | 0.5–1 day |
+| **Blocks** | Семантическая ясность для §3.2+; не блокирует код жёстко |
+
+#### Problem
+
+Продуктовые документы расходятся с принятыми решениями и текущим MVP:
+
+- в `PRODUCT_VISION.md` default `truth_mode` = **Сказка**, решение lead: **Правда (TRUTH)**;
+- не зафиксировано явно: MVP ages **3 и 5**, default age **5**;
+- Stage 1 в коде — regex MVP, в спеке — LLM `input_analysis` (ожидания разработчиков могут расходиться).
+
+#### Possible approaches (не финально)
+
+**A. Minimal diff (рекомендуется для MVP)**  
+Точечные правки 2–4 файлов: defaults, MVP scope note, ссылка на этот master plan.
+
+**B. Расширенный pass сейчас**  
+Сразу править `ARCHITECTURE.md`, `ROADMAP.md` — **не рекомендуется**; перенести в §3.6.
+
+#### Draft acceptance criteria
+
+- [ ] `PRODUCT_VISION.md`: default `truth_mode` = Правда / TRUTH
+- [ ] Зафиксировано: MVP seed ages **3, 5**; при отсутствии возраста в запросе → **5**
+- [ ] Краткая ремарка: Stage 1 MVP = deterministic extraction + registry matching; полный LLM-интерпретатор — follow-up
+- [ ] Ссылка на `MVP_FOLLOW_UP_MASTER_PLAN.md` из runbook или implementation index (опционально)
+- [ ] Нет противоречий с decision log §1.4
+
+#### Out of scope
+
+- Полный аудит всех docs
+- Правки `docs/03_PROMPTS`, legacy backup
+- Изменения кода
+
+#### Open questions
+
+- Нужна ли одна строка в `WHAT_IS_DREAMYDRAW.md` про default «Правда»?
+
+#### Deliverable before code
+
+**Implementation Plan** (краткий): список файлов и предлагаемых diff-ов на review.
+
+---
+
+### §3.2 Stage 1 — интерпретация пользовательского запроса
+
+| Field | Value |
+|-------|-------|
+| **Status** | `draft` |
+| **Owner** | Dev B (orchestration / backend) |
+| **Estimate** | 3–7 days (phased) |
+| **Depends on** | §3.1 желательно; не блокирует старт анализа |
+| **Blocks** | §3.5 manual tests (Chukovsky, style cases) |
+
+#### Problem
+
+Stage 1 извлекает параметры через **regex/heuristics** (`src/core/nodes/stage1.py`). Registry содержит prompt layers (напр. `CHUKOVSKY_STYLE`), но **пользовательские фразы не доходят до state**:
+
+```text
+Запрос: «… в стиле чуковского»
+Ожидание: CHUKOVSKY_STYLE in resolved_layers
+Факт (Wave 11): substyle None, layer отсутствует
+```
+
+Системная формулировка:
+
+```text
+Pipeline лучше сохраняет layer ids, чем operationalizes semantics —
+на Stage 1 проблема в том, что layer id часто не попадает в state вообще.
+```
+
+Связанные подпроблемы в scope этой задачи:
+
+- matching style/substyle/reference labels;
+- unsupported vs missed style (см. §3.2.1);
+- **D-04:** TRUTH + animals → `is_character = false` by default.
+
+#### §3.2.1 Unsupported / missed styles (в scope §3.2, не отдельный этап)
+
+| Ситуация | Текущее поведение | Целевое MVP (draft) |
+|----------|-------------------|---------------------|
+| «строго в стиле Дисней» | clarification, Stage 2 не стартует | сохранить |
+| «акварельное настроение» (мягко) | soft_preferences, генерация идёт | сохранить |
+| «в стиле чуковского» (есть в registry) | **игнорируется** | **resolve CHUKOVSKY_STYLE** |
+| «строго в стиле X», X нет в registry | частично через hard_details | clarification + честное сообщение |
+
+#### Possible approaches (не финально)
+
+**Phase 1 — Must (MVP gate)**
+
+```text
+raw text
+  → normalize
+  → [keep] regex signals: truth_mode, utility, age, subjects, teaching topics
+  → phrase extraction: «в стиле …», «как у …», «по …», «как …»
+  → registry match: exact alias → contains → (optional) fuzzy / RapidFuzz
+  → applicability check (truth_mode, content_format, age)
+  → write substyle / lookup_hints / resolved_layers
+```
+
+**Phase 2 — Should**
+
+- Generalized matching для reference_labels / substyles (не только Chukovsky)
+- Ambiguity: top-2 candidates близко → clarification с options из registry metadata
+- LLM fallback **только** для disambiguation среди **известных** registry candidates
+
+**Phase 3 — Later (отдельный backlog)**
+
+- Полный LLM `input_analysis` с confidence по всем base params (TARGET §4.5)
+- Пакетное уточнение неполных запросов
+
+**`is_character` (D-04):**
+
+- TRUTH + animal subject → `is_character = false` unless explicit character markers («Тим», «назови его…»)
+- Проверить downstream: `character_consistency` gate не должен требовать persona там, где её нет
+
+#### Draft acceptance criteria (Phase 1 minimum)
+
+- [ ] `Сделай 2 сказки про лису для 3 лет в стиле чуковского` → `FAIRY_TALE`, `target_age=3`, `CHUKOVSKY_STYLE` in resolved layers
+- [ ] Typos/variants из `WAVE_11_FOLLOW_UP` (≥3) — unit tests
+- [ ] `2 правдивых истории про лису` → `TRUTH` без регрессии
+- [ ] `2 сказки про лису` без возраста → `target_age=5`
+- [ ] Unsupported hard style → clarification, no `approved_texts` until resume
+- [ ] No fabricated layer ids
+- [ ] TRUTH + «про лису» → subject with `is_character=false` (unless explicit character request)
+- [ ] `pytest` integration/unit green; CI без external LLM
+
+#### Key files (orientation)
+
+- `src/core/nodes/stage1.py`
+- `src/core/prompts/lookup.py`
+- `src/core/prompts/registry.py`
+- `prompts/truth_modes/FAIRY_TALE/styles/reference_labels/CHUKOVSKY_STYLE.md`
+- `tests/integration/test_stage1_2_golden_scenarios.py`
+- `tests/integration/test_stage1_2_negative_scenarios.py`
+
+#### Out of scope
+
+- Stage 2 TRUTH enforcement (§3.3)
+- Text length (§3.4)
+- Legacy removal (§3.7)
+- Full LLM interpreter all fields (Phase 3)
+
+#### Open questions for Implementation Plan
+
+- RapidFuzz в dependencies — да/нет для Phase 1?
+- Где жить phrase extractor — отдельный модуль vs `lookup.py`?
+- Формат поля: `substyle` string vs resolved reference label id?
+
+#### Deliverable before code
+
+**Implementation Plan** with: proposed architecture diagram, phase split, test matrix, risk notes.
+
+---
+
+### §3.3 Stage 2 — удержание режима правды (TRUTH)
+
+| Field | Value |
+|-------|-------|
+| **Status** | `draft` |
+| **Owner** | Dev C or Dev B (after / parallel to §3.2) |
+| **Estimate** | 3–5 days |
+| **Depends on** | Желательно D-04 / §3.2 для `is_character`; можно начинать анализ параллельно |
+| **Blocks** | §3.5 manual tests (requests #2, #8, #13) |
+
+#### Problem
+
+Stage 1 корректно ставит `truth_mode=TRUTH` и resolved layers (`TRUTH_BASE`, `TRUTH_ANIMAL_FOX`, …), но **approved texts** на real LLM содержат сказочные клише:
+
+```text
+«Жила-была лиса…», имена, сундуки, anthropomorphic social logic
+```
+
+Wave 11 формулировка:
+
+```text
+System knows which rule layer was selected,
+but generated result does not always behave as if that rule was active.
+```
+
+Дополнительный defect: validator может вернуть `accepted` при non-empty `issues`.
+
+#### Possible approaches (не финально)
+
+**A. Prompt grounding (обязательный минимум)**  
+Generator / scorer / validator / refiner получают **тела** активных TRUTH layers через `PromptComposer`, не только layer ids.
+
+**B. Scorer / validator hardening**  
+Explicit `truth_fit=fail` для fairy-tale markers в TRUTH; список маркеров согласовать на plan review.
+
+**C. Deterministic post-check (optional safety net)**  
+Lightweight keyword/regex gate before approve — обсудить false positives.
+
+**D. Fix validation contract**  
+`status=accepted` forbidden when `issues` non-empty.
+
+#### Draft acceptance criteria
+
+- [ ] Request `2 правдивых истории про лису для 5 лет` with `--executor llm` → approved texts **без** сказочного framing (на plan review зафиксировать checklist маркеров)
+- [ ] `truth_fit` fail → candidate не попадает в approved (mock + integration tests)
+- [ ] Validator: `accepted` + non-empty `issues` → impossible (unit test)
+- [ ] Golden scenario `test_truth_hedgehog_winter_stories_reach_approved_texts` без регрессии
+- [ ] Refiner preserves theme/subject while fixing truth violations
+
+#### Out of scope
+
+- Style matching (§3.2)
+- Length limits (§3.4)
+- Teaching utility deep pass (unless regression)
+
+#### Open questions
+
+- Нужен ли deterministic gate в MVP или достаточно LLM scorer+validator?
+- Список «сказочных маркеров» — продуктовый review с lead?
+
+#### Deliverable before code
+
+**Implementation Plan**: enforcement points in pipeline, marker list draft, test strategy (scripted LLM vs real LLM manual).
+
+---
+
+### §3.4 Ограничения длины итогового текста
+
+| Field | Value |
+|-------|-------|
+| **Status** | `draft` |
+| **Owner** | Dev D (or same as §3.3) |
+| **Estimate** | 1–2 days |
+| **Depends on** | Желательно после §3.3; before §3.5 |
+| **Blocks** | §3.5 (length observations in manual report) |
+
+#### Problem
+
+Approved texts могут быть **несколько абзацев**; продукт ожидает **короткий текст** (ориентир: 3–5 предложений, для младшего возраста — короче). Hard gate / refiner policy отсутствует.
+
+Lead decision (draft): **начать просто** — одно правило «как для 3 лет» для всех возрастов MVP.
+
+#### Possible approaches (не финально)
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **A. Deterministic sentence count** | Fast, testable | Грубый (аббревиатуры, диалог) |
+| **B. LLM validator only** | Semantic | Unreliable (как TRUTH) |
+| **C. A + refiner + generator hint** | Best MVP balance | Slightly more code |
+
+**Draft rule:** max **4–5 предложений** в основном тексте истории; превышение → `needs_revision` → refiner «сократи, сохрани смысл».
+
+#### Draft acceptance criteria
+
+- [ ] Generator prompt includes length instruction
+- [ ] Validator or deterministic check flags overlength
+- [ ] Refiner can shorten without changing theme/subject
+- [ ] Unit test: 8-sentence mock → revision path
+- [ ] Documented in runbook / STAGE_CONTRACTS (mini note)
+
+#### Out of scope
+
+- Per-age table (3 vs 5 different limits) — follow-up after MVP
+- Image text overlay length
+
+#### Open questions
+
+- Exact threshold: 4 or 5 sentences?
+- Count questions separately or include in limit?
+
+#### Deliverable before code
+
+**Implementation Plan** with chosen approach (A/C), edge cases, sample refiner prompt.
+
+---
+
+### §3.5 Детальные ручные тесты
+
+| Field | Value |
+|-------|-------|
+| **Status** | `draft` |
+| **Owner** | Lead + any dev (execution); QA-style report |
+| **Estimate** | 1–2 days |
+| **Depends on** | §3.2, §3.3, §3.4 minimum (Wave 11 Block 1) |
+
+#### Problem
+
+Automated golden tests use **scripted/mock executors** — не ловят real LLM behavior (TRUTH, length, style). Нужен structured manual pass.
+
+#### Source
+
+`WAVE_11_FINAL.md` — Appendix (15 requests).
+
+#### Procedure (draft)
+
+For each request record:
+
+- request text;
+- command: `venv/bin/python scripts/run_stage1_2_mvp.py "<request>" --executor llm --debug-llm` (when LLM available);
+- `session_id`;
+- `completion_status`, `approved_count`;
+- key `normalized_request` fields;
+- `resolved_layers` ids;
+- snippet / issues in `approved_texts`;
+- pass/fail vs expectation;
+- follow-up ticket if fail.
+
+#### Draft acceptance criteria
+
+- [ ] All 15 appendix requests executed and recorded
+- [ ] Report stored: `implementation/WAVE_11_MANUAL_TEST_REPORT.md` (or agreed location)
+- [ ] `STAGE_1_2_MVP_ACCEPTANCE_CHECKLIST.md` updated with checkmarks / known gaps
+- [ ] No silent failures: TRUTH requests documented with truth-fit assessment
+
+#### Out of scope
+
+- Fixing failures found (separate tickets)
+- Image pipeline tests
+
+---
+
+### §3.6 Doc alignment (полный проход)
+
+| Field | Value |
+|-------|-------|
+| **Status** | `draft` |
+| **Owner** | Dev A or tech writer + dev review |
+| **Estimate** | 2–4 days |
+| **Depends on** | §3.5 complete |
+
+#### Problem
+
+После кодовых изменений часть engineering docs описывает **legacy** или **target**, не **actual MVP**:
+
+- `ARCHITECTURE.md` — legacy planner pipeline;
+- `ROADMAP.md` — mixed checklist;
+- possible drift in orchestration specs vs `stage1.py` behavior.
+
+#### Possible approaches
+
+**Inventory → gap list → prioritized fixes**
+
+1. List docs claiming "current behavior"
+2. Compare to Stage 1–2 MVP code + manual test report
+3. Update or mark `Historical / legacy` sections
+4. Add `Current MVP` section pointing to `run_stage1_2_mvp.py`
+
+#### Draft acceptance criteria
+
+- [ ] Gap inventory document or section in this master plan
+- [ ] `ARCHITECTURE.md` distinguishes legacy vs Stage 1–2 MVP
+- [ ] Runbook matches actual CLI flags and executors
+- [ ] No doc promises full LLM Stage 1 if not implemented
+- [ ] Decision log §1.4 reflected everywhere defaults mentioned
+
+#### Out of scope
+
+- Rewriting entire TARGET_ORCHESTRATION_LOGIC
+- Product marketing copy overhaul
+
+---
+
+### §3.7 Удаление legacy (code, prompts, docs)
+
+| Field | Value |
+|-------|-------|
+| **Status** | `draft` |
+| **Owner** | Senior dev + lead approval |
+| **Estimate** | 3–5 days (after audit) |
+| **Depends on** | §3.5 green enough; §3.6 inventory |
+
+#### Problem
+
+Два orchestrator, duplicate prompts (`docs/03_PROMPTS` vs `prompts/`), legacy code confuse contributors and tests.
+
+#### Possible approaches
+
+**Phased deletion**
+
+1. **Audit:** list legacy entry points, imports, tests still using legacy
+2. **Deprecate:** README notice, delete guards in CI
+3. **Remove:** `main.py` legacy path? `Orchestrator`, `docs/03_PROMPTS`, `99_BACKUP` — only after confirm nothing needed for Stage 3 reference
+4. **Verify:** full pytest, smoke `run_stage1_2_mvp.py`
+
+#### Draft acceptance criteria
+
+- [ ] Audit doc: what was removed and why
+- [ ] Single documented CLI entry for MVP
+- [ ] `pytest -q` green
+- [ ] No broken links in active docs (or redirects noted)
+
+#### Out of scope
+
+- Stage 3 implementation
+- Migrating useful legacy prompts without review
+
+#### Open questions
+
+- Keep `main.py` as thin redirect to Stage 1–2 CLI?
+- Archive repo tag before deletion?
+
+---
+
+## 4. Manual test appendix (reference)
+
+Source: `WAVE_11_FINAL.md`. Execute in §3.5.
+
+| # | Request |
+|---|---------|
+| 1 | `Сделай 2 сказки про лису для 5 лет` |
+| 2 | `Сделай 2 правдивые истории про лису для 5 лет` |
+| 3 | `Сделай 2 сказки про лису` |
+| 4 | `2 сказки` |
+| 5 | `Сделай сказку про лису для 5 лет в стиле Чуковского` |
+| 6 | `Сделай сказку про лису для 5 лет строго в стиле Дисней` |
+| 7 | `Сделай сказку про лису для 5 лет в акварельном настроении` |
+| 8 | `Сделай правдивую историю про лису для 5 лет, обязательно чтобы она летала на волшебном ковре` |
+| 9 | `Сделай 2 поучительные сказки про лису и переход через дорогу для 5 лет` |
+| 10 | `Сделай поучительную историю про незнакомца и конфету для ребёнка 5 лет` |
+| 11 | `Сделай 3 истории про лису, зайца и белку зимой, чтобы герои не исчезали` |
+| 12 | `Сделай историю про бельчонка Тима, он смелый и любит жёлуди, для 5 лет` |
+| 13 | `Сделай правдивую историю про попугая какаду для 5 лет` |
+| 14 | `Сделай мягкую мифологическую историю про солнце и ветер для ребёнка 5 лет` |
+| 15 | `Сделай 2 сказки про лису для 5 лет` — run 3×, compare diversity |
+
+---
+
+## 5. Implementation Plan template (for developers)
+
+Copy and fill before coding:
+
+```markdown
+# Implementation Plan — §3.X <title>
+
+Author: 
+Date:
+Status: draft | under_review | approved
+
+## 1. Problem understanding
+(confirm alignment with master plan §3.X)
+
+## 2. Current state analysis
+(files read, behavior observed)
+
+## 3. Proposed solution
+(chosen approach and why; rejected alternatives)
+
+## 4. Phase split / PR strategy
+
+## 5. Test plan
+(unit, integration, manual if any)
+
+## 6. Risks and open questions
+
+## 7. Doc updates needed
+
+## 8. Estimated effort
+```
+
+---
+
+## 6. Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-07-03 | Initial master plan: §3.1–§3.7, decision log D-01–D-06, reading guide |
+
+---
+
+## 7. Task status board
+
+| Task | Owner | Status |
+|------|-------|--------|
+| §3.1 Doc mini-pass | TBD | `draft` |
+| §3.2 Stage 1 interpretation | TBD | `draft` |
+| §3.3 Stage 2 TRUTH | TBD | `draft` |
+| §3.4 Length limits | TBD | `draft` |
+| §3.5 Manual tests | TBD | `draft` |
+| §3.6 Doc alignment | TBD | `draft` |
+| §3.7 Legacy cleanup | TBD | `draft` |
