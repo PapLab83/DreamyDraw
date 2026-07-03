@@ -1,10 +1,12 @@
 # Stage 1 Interpretation
 
+> **MVP note (Stage 1–2):** Сейчас нода `input_analysis` реализована как deterministic regex/heuristics и registry matching в `src/core/nodes/stage1.py`, а не как полный LLM-интерпретатор. Ниже — целевая спецификация; расширение интерпретации — `implementation/MVP_FOLLOW_UP_MASTER_PLAN.md` §3.2.
+
 ### Stage 1 nodes
 
 #### `input_analysis`
 
-Type: LLM.
+Type: LLM (target). **MVP actual:** deterministic heuristics in `src/core/nodes/stage1.py`.
 
 Purpose:
 

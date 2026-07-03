@@ -101,7 +101,7 @@
 | `truth_mode` | Режим отношения к реальности: `TRUTH`, `MYTH`, `FAIRY_TALE`. |
 | `utility_mode` | Цель результата: `NARRATIVE`, `TEACHING`, позже `ENGLISH`. |
 | `utility_topic` | Конкретная teaching/practical тема, если есть: например `hygiene_handwashing`, `road_crossing`, `stranger_candy_safety`; иначе `null`. |
-| `target_age` | Возрастной профиль: на MVP достаточно `3` и `5`. |
+| `target_age` | Возрастной профиль: на MVP seed layers только для `3` и `5`. Если возраст не указан в запросе, Stage 1 ставит `5` без clarification. |
 | `output_count` | Сколько итоговых approved texts нужно пользователю. |
 | `audience_language` | Язык общения с пользователем. На старте `ru`. |
 | `result_language` | Язык результата. На старте `ru`. |

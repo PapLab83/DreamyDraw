@@ -177,7 +177,7 @@ tests/integration/test_stage1_2_*.py
 
 | Field | Value |
 |-------|-------|
-| **Status** | `draft` |
+| **Status** | `done` |
 | **Owner** | Dev A (docs / любой исполнитель без deep code) |
 | **Estimate** | 0.5–1 day |
 | **Blocks** | Семантическая ясность для §3.2+; не блокирует код жёстко |
@@ -200,10 +200,10 @@ tests/integration/test_stage1_2_*.py
 
 #### Draft acceptance criteria
 
-- [ ] `PRODUCT_VISION.md`: default `truth_mode` = Правда / TRUTH
-- [ ] Зафиксировано: MVP seed ages **3, 5**; при отсутствии возраста в запросе → **5**
-- [ ] Краткая ремарка: Stage 1 MVP = deterministic extraction + registry matching; полный LLM-интерпретатор — follow-up
-- [ ] Ссылка на `MVP_FOLLOW_UP_MASTER_PLAN.md` из runbook или implementation index (опционально)
+- [x] `PRODUCT_VISION.md`: default `truth_mode` = Правда / TRUTH
+- [x] Зафиксировано: MVP seed ages **3, 5**; при отсутствии возраста в запросе → **5**
+- [x] Краткая ремарка: Stage 1 MVP = deterministic extraction + registry matching; полный LLM-интерпретатор — follow-up
+- [x] Ссылка на `MVP_FOLLOW_UP_MASTER_PLAN.md` из runbook или implementation index (опционально)
 
 #### Out of scope
 
@@ -634,6 +634,7 @@ Status: draft | under_review | approved
 |------|--------|
 | 2026-07-03 | Initial master plan |
 | 2026-07-03 | §1.4: backlog context вместо decision log; решения перенесены в задачи |
+| 2026-07-03 | §3.1 done: MVP defaults (TRUTH, ages 3/5, Stage 1 heuristics note) в product/runbook/orchestration docs |
 
 ---
 
@@ -641,7 +642,7 @@ Status: draft | under_review | approved
 
 | Task | Owner | Status |
 |------|-------|--------|
-| §3.1 Doc mini-pass | TBD | `draft` |
+| §3.1 Doc mini-pass | Dev A | `done` |
 | §3.2 Stage 1 interpretation | TBD | `draft` |
 | §3.3 Stage 2 TRUTH | TBD | `draft` |
 | §3.4 Length limits | TBD | `draft` |
