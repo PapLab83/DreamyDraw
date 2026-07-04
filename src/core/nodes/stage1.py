@@ -263,13 +263,16 @@ def empty_input_interrupt(state: GraphState) -> GraphState:
 def unsupported_interrupt_or_stop(state: GraphState) -> GraphState:
     session = state["session"]
     attempts = session.interpretation_state.clarification_attempts
+    style_message, style_options = _unsupported_style_interrupt_payload(session)
     if attempts < session.interpretation_state.max_clarification_attempts:
         return _create_or_reuse_interrupt(
             state,
             node="unsupported_interrupt_or_stop",
             reason="unsupported_hard_requirement",
-            message="Часть запроса пока нельзя выполнить буквально. Можно выбрать безопасную замену.",
-            options=[
+            message=style_message
+            or "Часть запроса пока нельзя выполнить буквально. Можно выбрать безопасную замену.",
+            options=style_options
+            or [
                 {
                     "id": "opt_1",
                     "label": "Сказка с оригинальным героем-лисой",
@@ -810,6 +813,65 @@ def _resolve_substyle_layer_id(substyle: str, registry: PromptRegistry) -> str |
     return _SUPPORTED_LAYER_IDS.get(legacy_key)
 
 
+def _unsupported_style_interrupt_payload(
+    session: SessionState,
+) -> tuple[str | None, list[dict[str, Any]] | None]:
+    request = session.normalized_request
+    style_detail = next(
+        (
+            detail
+            for detail in request.hard_details
+            if "unsupported: hard style requirement" in detail
+            or "unsupported: style applicability conflict" in detail
+        ),
+        None,
+    )
+    if style_detail is None:
+        return None, None
+
+    style_label = _extract_style_label_from_hard_detail(style_detail)
+    subject_label = request.main_subject or "героя"
+    if subject_label == "fox":
+        subject_label = "лису"
+    elif subject_label == "hedgehog":
+        subject_label = "ёжика"
+
+    message = (
+        f"Стиль «{style_label}» пока не поддерживается в MVP. "
+        "Мы можем сделать сказку без этого стиля или в базовой сказочной манере."
+    )
+    options = [
+        {
+            "id": "opt_no_style",
+            "label": "Сказка без особого стиля",
+            "normalized_patch": {
+                "truth_mode": request.truth_mode or "FAIRY_TALE",
+                "target_age": request.target_age or "5",
+                "main_subject": request.main_subject,
+            },
+        },
+        {
+            "id": "opt_fairy_base",
+            "label": f"Обычная сказка про {subject_label}",
+            "normalized_patch": {
+                "truth_mode": "FAIRY_TALE",
+                "target_age": request.target_age or "5",
+                "main_subject": request.main_subject or "fox",
+            },
+        },
+    ]
+    return message, options
+
+
+def _extract_style_label_from_hard_detail(detail: str) -> str:
+    if "(" in detail and detail.endswith(")"):
+        inner = detail[detail.rindex("(") + 1 : -1]
+        if " / " in inner:
+            return inner.split(" / ", maxsplit=1)[0].strip()
+        return inner.strip()
+    return "запрошенный стиль"
+
+
 def _analysis_confidence(request: NormalizedRequest, text: str) -> dict[str, int]:
     if not text.strip():
         return {"input_analysis": 20}
@@ -904,6 +966,9 @@ def _classification_options(classification: str) -> list[str]:
 def _payload_options(session: SessionState) -> list[dict[str, Any]]:
     reason = session.interpretation_state.clarification_reason
     if reason == "unsupported_hard_requirement":
+        _, style_options = _unsupported_style_interrupt_payload(session)
+        if style_options:
+            return style_options
         return [
             {
                 "id": "opt_1",

@@ -225,7 +225,7 @@ tests/integration/test_stage1_2_*.py
 
 | Field | Value |
 |-------|-------|
-| **Status** | `in_progress` |
+| **Status** | `done` |
 | **Owner** | Dev B (orchestration / backend) |
 | **Estimate** | 8–12 days (Уровень B: cascade + RapidFuzz + LLM style tail) |
 | **Plan** | `implementation/IMPLEMENTATION_PLAN_3_2_STAGE1_INTERPRETATION.md` (**approved** 2026-07-03) |
@@ -290,14 +290,14 @@ raw text
 
 #### Draft acceptance criteria (Phase 1 minimum)
 
-- [ ] `Сделай 2 сказки про лису для 3 лет в стиле чуковского` → `FAIRY_TALE`, `target_age=3`, `CHUKOVSKY_STYLE` in resolved layers
-- [ ] Typos/variants из `WAVE_11_FOLLOW_UP` (≥3) — unit tests
-- [ ] `2 правдивых истории про лису` → `TRUTH` без регрессии
-- [ ] `2 сказки про лису` без возраста → `target_age=5`
-- [ ] Unsupported hard style → clarification, no `approved_texts` until resume
-- [ ] No fabricated layer ids
-- [ ] TRUTH + «про лису» → subject with `is_character=false` (unless explicit character request)
-- [ ] `pytest` integration/unit green; CI без external LLM
+- [x] `Сделай 2 сказки про лису для 3 лет в стиле чуковского` → `FAIRY_TALE`, `target_age=3`, `CHUKOVSKY_STYLE` in resolved layers
+- [x] Typos/variants из `WAVE_11_FOLLOW_UP` (≥3) — unit tests
+- [x] `2 правдивых истории про лису` → `TRUTH` без регрессии
+- [x] `2 сказки про лису` без возраста → `target_age=5`
+- [x] Unsupported hard style → clarification, no `approved_texts` until resume
+- [x] No fabricated layer ids
+- [x] TRUTH + «про лису» → subject with `is_character=false` (unless explicit character request)
+- [x] `pytest` integration/unit green; CI без external LLM
 
 #### Key files (orientation)
 
@@ -636,7 +636,7 @@ Status: draft | under_review | approved
 | 2026-07-03 | Initial master plan |
 | 2026-07-03 | §1.4: backlog context вместо decision log; решения перенесены в задачи |
 | 2026-07-03 | §3.1 done: MVP defaults (TRUTH, ages 3/5, Stage 1 heuristics note) в product/runbook/orchestration docs |
-| 2026-07-03 | §3.2: Implementation Plan approved (Уровень B — full matching cascade incl. RapidFuzz + LLM style tail) |
+| 2026-07-04 | §3.2 done: Stage 1 style cascade (registry + RapidFuzz + heuristic tail), TRUTH `is_character`, tests |
 
 ---
 
@@ -645,7 +645,7 @@ Status: draft | under_review | approved
 | Task | Owner | Status |
 |------|-------|--------|
 | §3.1 Doc mini-pass | Dev A | `done` |
-| §3.2 Stage 1 interpretation | Dev B | `in_progress` |
+| §3.2 Stage 1 interpretation | Dev B | `done` |
 | §3.3 Stage 2 TRUTH | TBD | `draft` |
 | §3.4 Length limits | TBD | `draft` |
 | §3.5 Manual tests | TBD | `draft` |

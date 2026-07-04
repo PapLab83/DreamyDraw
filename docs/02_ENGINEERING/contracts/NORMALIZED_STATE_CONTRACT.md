@@ -110,7 +110,7 @@
 | `subjects` | Структурированный список сущностей запроса. |
 | `setting` | Место, сезон, время и другие обстоятельства. |
 | `text_style_base` | Базовый тон текста. |
-| `substyle` | Конкретный подстиль, если есть поддерживаемый слой. Может быть `null`. |
+| `substyle` | Конкретный подстиль, если найден поддерживаемый prompt layer. На MVP хранится **canonical layer id** (например `CHUKOVSKY_STYLE`), не slug. Может быть `null`. |
 | `character_profile` | Профиль устойчивого персонажа, если он нужен. |
 | `subject_continuity_policy` | Правило сохранения сущностей между текстами. |
 | `hard_details` | Жёсткие требования пользователя. |
@@ -189,6 +189,8 @@ interpretation_state / preview_state
 | `type` | Тип сущности: `animal`, `person`, `profession`, `object`, `place`, `nature`, `custom`. |
 | `role` | Роль в результате: `main`, `secondary`, `context`. |
 | `is_character` | Является ли сущность устойчивым персонажем. |
+
+**MVP (Stage 1 actual):** при `truth_mode = TRUTH` животное из запроса («про лису») по умолчанию **`is_character = false`** (subject/тема, не герой). `is_character = true` — только при явных маркерах: имя, «герой/персонаж/зовут», «маленький \<species\>» + trait (например бельчонок Тим). В `FAIRY_TALE` / `MYTH` животные могут оставаться `is_character = true` по умолчанию.
 | `base_species` | Базовый вид или родовая сущность, если применимо. |
 | `resolved_layer_id` | Найденный prompt layer, если он есть. |
 | `unresolved_detail` | Деталь, для которой нет точного слоя. |

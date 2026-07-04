@@ -1,6 +1,8 @@
 # Stage 1 Interpretation
 
-> **MVP note (Stage 1–2):** Сейчас нода `input_analysis` реализована как deterministic regex/heuristics и registry matching в `src/core/nodes/stage1.py`, а не как полный LLM-интерпретатор. Ниже — целевая спецификация; расширение интерпретации — `implementation/MVP_FOLLOW_UP_MASTER_PLAN.md` §3.2.
+> **MVP note (Stage 1–2):** Сейчас `input_analysis` — deterministic cascade в `src/core/nodes/stage1.py` + `src/core/interpretation/` + `src/core/prompts/lookup.py`, а не полный LLM-интерпретатор.  
+> **MVP actual pipeline:** regex/rules (truth, age, subjects, teaching) → normalize → registry match (exact → contains) → RapidFuzz → heuristic style tail (pick-one-from-candidates, без external LLM в CI) → post-verify → `candidate_layer_resolution`.  
+> Полный LLM `input_analysis` — отдельный epic (Stage 1 v2). Детали: `implementation/IMPLEMENTATION_PLAN_3_2_STAGE1_INTERPRETATION.md`, `MVP_FOLLOW_UP_MASTER_PLAN.md` §3.2 (**done**).
 
 ### Stage 1 nodes
 
