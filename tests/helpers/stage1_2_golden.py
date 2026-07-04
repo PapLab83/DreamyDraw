@@ -142,13 +142,74 @@ class GoldenStage2Executor:
         }
 
 
+class LenientStage2Executor(GoldenStage2Executor):
+    """Simulates lenient real LLM scorer/validator; TRUTH safety net is deterministic post-check."""
+
+    def __init__(self, *, mutate_tim_refiner: bool = False) -> None:
+        super().__init__(mutate_tim_refiner=mutate_tim_refiner)
+        self.runtime_contexts: dict[str, list[dict[str, Any]]] = {
+            "generate_candidates": [],
+            "score_candidates": [],
+            "validate_candidate": [],
+        }
+
+    def score_candidates(self, runtime_context: dict[str, Any]) -> list[dict[str, Any]]:
+        self.runtime_contexts["score_candidates"].append(runtime_context)
+        self.calls["score_candidates"] += 1
+        return [
+            {
+                "candidate_id": candidate["candidate_id"],
+                "hard_gates": {gate: "pass" for gate in REQUIRED_GATES},
+                "score_components": {
+                    "child_interest": 0.95 - index * 0.03,
+                    "age_fit": 0.9,
+                    "utility_fit": 0.9,
+                    "style_fit": 0.9,
+                    "novelty": 0.85 - index * 0.02,
+                    "visual_potential": 0.8,
+                },
+                "total_score": 0.95 - index * 0.03,
+            }
+            for index, candidate in enumerate(runtime_context["candidate_texts"])
+        ]
+
+    def validate_candidate(self, runtime_context: dict[str, Any]) -> dict[str, Any]:
+        self.runtime_contexts["validate_candidate"].append(runtime_context)
+        self.calls["validate_candidate"] += 1
+        return {
+            "status": "accepted",
+            "summary": "lenient fake accepted",
+            "issues": [],
+            "required_fixes": [],
+        }
+
+    def generate_candidates(self, runtime_context: dict[str, Any], count: int) -> list[dict[str, Any]]:
+        self.runtime_contexts["generate_candidates"].append(runtime_context)
+        self.calls["generate_candidates"] += 1
+        summary = runtime_context["normalized_request_summary"]
+        scenario = _scenario(summary)
+        candidates: list[dict[str, Any]] = []
+        natural_violation = _natural_truth_violation(scenario)
+        if natural_violation:
+            candidates.append(_candidate("Lenient TRUTH violation", natural_violation, summary))
+        for index in range(1, 6):
+            candidates.append(
+                _candidate(
+                    f"{_theme_prefix(scenario)} {index}",
+                    _approved_text(scenario, summary, variant=str(index)),
+                    summary,
+                )
+            )
+        return candidates[:count]
+
+
 def run_golden_pipeline(
     tmp_path,
     request: str,
     *,
     count: int | None = None,
     candidate_count: int = 6,
-    executor: GoldenStage2Executor | None = None,
+    executor: GoldenStage2Executor | LenientStage2Executor | None = None,
 ):
     fake = executor or GoldenStage2Executor()
     orchestrator = Stage1_2Orchestrator(
@@ -203,9 +264,18 @@ def _scenario(summary: dict[str, Any]) -> str:
         return "myth_nature"
     if "hedgehog" in subject_ids:
         return "truth_hedgehog"
+    if "fox" in subject_ids and truth_mode == "TRUTH":
+        return "truth_fox"
     if "fox" in subject_ids and truth_mode == "FAIRY_TALE":
         return "fairy_fox"
     return "generic"
+
+
+def _natural_truth_violation(scenario: str) -> str | None:
+    return {
+        "truth_hedgehog": "Жила-была маленькая ёжиха, и она сказала: «Сегодня будет снег».",
+        "truth_fox": "Жила-была лиса в лесу и однажды сказала: «Пойдём гулять».",
+    }.get(scenario)
 
 
 def _scenario_candidates(scenario: str, summary: dict[str, Any]) -> list[dict[str, Any]]:
@@ -245,6 +315,7 @@ def _candidate(theme: str, text: str, summary: dict[str, Any]) -> dict[str, Any]
 def _theme_prefix(scenario: str) -> str:
     return {
         "truth_hedgehog": "Ёжик зимой",
+        "truth_fox": "Лиса в лесу",
         "fairy_fox": "Сказочная лиса",
         "myth_nature": "Мягкий миф",
         "hand_washing": "Чистые руки",
@@ -260,6 +331,7 @@ def _approved_text(scenario: str, summary: dict[str, Any], *, variant: str) -> s
     suffix = f" Вариант {variant}."
     return {
         "truth_hedgehog": "Правдивая короткая история: ёжик зимой тихо ищет укрытие в лесу, не говорит и не колдует.",
+        "truth_fox": "Правдивая короткая история: лиса зимой осторожно идёт по лесу и слушает звуки вокруг.",
         "fairy_fox": "Сказочная история: лиса в тёплом лесу вежливо разговаривает с ветром и делает добрый выбор.",
         "myth_nature": "Мягкий миф: солнце и ветер показаны как образы древней истории, а не как научное объяснение.",
         "hand_washing": "Поучительная правдивая история: ребёнок после прогулки моет руки с мылом и тёплой водой.",
