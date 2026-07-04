@@ -95,7 +95,7 @@ class Stage1Runner:
         state["user_input"] = resume_value
 
         if resume_value is not None or session.interpretation_state.classification != "complete":
-            state = self._step(state, input_analysis)
+            state = self._step(state, input_analysis, self.registry)
             if self._is_waiting(state["session"]):
                 return self._result(state["session"])
             state = self._step(state, metadata_lookup, self.registry)

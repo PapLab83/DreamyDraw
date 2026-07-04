@@ -33,7 +33,7 @@ def build_stage1_2_graph(
 ):
     graph = StateGraph(GraphState)
 
-    graph.add_node(r.NODE_INPUT_ANALYSIS, _persisting(stage1.input_analysis, storage, r.NODE_INPUT_ANALYSIS))
+    graph.add_node(r.NODE_INPUT_ANALYSIS, _persisting(partial(stage1.input_analysis, registry=registry), storage, r.NODE_INPUT_ANALYSIS))
     graph.add_node(r.NODE_METADATA_LOOKUP, _persisting(partial(stage1.metadata_lookup, registry=registry), storage, r.NODE_METADATA_LOOKUP))
     graph.add_node(r.NODE_REQUEST_CLASSIFICATION, _persisting(stage1.request_classification, storage, r.NODE_REQUEST_CLASSIFICATION))
     graph.add_node(r.NODE_CLARIFICATION_INTERRUPT, _persisting(stage1.clarification_interrupt, storage, r.NODE_CLARIFICATION_INTERRUPT))

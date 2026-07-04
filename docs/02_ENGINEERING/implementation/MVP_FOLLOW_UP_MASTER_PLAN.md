@@ -225,9 +225,10 @@ tests/integration/test_stage1_2_*.py
 
 | Field | Value |
 |-------|-------|
-| **Status** | `draft` |
+| **Status** | `in_progress` |
 | **Owner** | Dev B (orchestration / backend) |
-| **Estimate** | 3–7 days (phased) |
+| **Estimate** | 8–12 days (Уровень B: cascade + RapidFuzz + LLM style tail) |
+| **Plan** | `implementation/IMPLEMENTATION_PLAN_3_2_STAGE1_INTERPRETATION.md` (**approved** 2026-07-03) |
 | **Depends on** | §3.1 желательно; не блокирует старт анализа |
 | **Blocks** | §3.5 manual tests (Chukovsky, style cases) |
 
@@ -635,6 +636,7 @@ Status: draft | under_review | approved
 | 2026-07-03 | Initial master plan |
 | 2026-07-03 | §1.4: backlog context вместо decision log; решения перенесены в задачи |
 | 2026-07-03 | §3.1 done: MVP defaults (TRUTH, ages 3/5, Stage 1 heuristics note) в product/runbook/orchestration docs |
+| 2026-07-03 | §3.2: Implementation Plan approved (Уровень B — full matching cascade incl. RapidFuzz + LLM style tail) |
 
 ---
 
@@ -643,7 +645,7 @@ Status: draft | under_review | approved
 | Task | Owner | Status |
 |------|-------|--------|
 | §3.1 Doc mini-pass | Dev A | `done` |
-| §3.2 Stage 1 interpretation | TBD | `draft` |
+| §3.2 Stage 1 interpretation | Dev B | `in_progress` |
 | §3.3 Stage 2 TRUTH | TBD | `draft` |
 | §3.4 Length limits | TBD | `draft` |
 | §3.5 Manual tests | TBD | `draft` |

@@ -68,6 +68,49 @@ def lookup_prompt_metadata(
     )[:limit]
 
 
+def match_style_substyle_layers(
+    registry: PromptRegistry,
+    *,
+    normalized_phrase: str,
+    applicability: dict[str, str] | None = None,
+    limit: int = 10,
+) -> list[MetadataLookupCandidate]:
+    phrase = normalize_lookup_term(normalized_phrase)
+    if not phrase:
+        return []
+
+    style_types = {"style", "substyle"}
+    candidates = [layer for layer in registry.list_metadata() if layer.type in style_types]
+    scored: dict[str, MetadataLookupCandidate] = {}
+
+    for layer in candidates:
+        match = _match_style_phrase_to_layer(layer, phrase)
+        if match is None:
+            continue
+        match_level, score, reason = match
+        applicability_status = _applicability_status(layer, applicability or {})
+        candidate = MetadataLookupCandidate(
+            layer_id=layer.id,
+            type=layer.type,
+            role=layer.role,
+            source=layer.source,
+            match_level=match_level,
+            match_score=score,
+            match_reason=reason,
+            applicability_status=applicability_status,
+            ambiguity_group_id=_ambiguity_group_id(layer),
+            short_description=layer.short_description,
+        )
+        existing = scored.get(layer.id)
+        if existing is None or candidate.match_score > existing.match_score:
+            scored[layer.id] = candidate
+
+    return sorted(
+        scored.values(),
+        key=lambda item: (-item.match_score, item.source, item.layer_id),
+    )[:limit]
+
+
 def execute_prompt_lookup(
     registry: PromptRegistry,
     *,
@@ -105,6 +148,48 @@ def execute_prompt_lookup(
         fallback_layers=tuple(fallback_payload),
         unresolved_details=unresolved_payload,
     )
+
+
+def _match_style_phrase_to_layer(
+    layer: PromptLayerMetadata,
+    phrase: str,
+) -> tuple[str, float, str] | None:
+    best: tuple[str, float, str] | None = None
+    targets = [layer.id, layer.name, *layer.aliases]
+    for target in targets:
+        match = _match_style_phrase(phrase, target)
+        if match is None:
+            continue
+        if best is None or match[1] > best[1]:
+            best = match
+    return best
+
+
+def _match_style_phrase(phrase: str, target: str) -> tuple[str, float, str] | None:
+    normalized_phrase = normalize_lookup_term(phrase)
+    normalized_target = normalize_lookup_term(target)
+    if not normalized_phrase or not normalized_target:
+        return None
+    if normalized_phrase == normalized_target:
+        return ("exact", 1.0, f"exact match: {target}")
+    if normalized_phrase in normalized_target:
+        return ("alias", 0.92, f"phrase in alias: {target}")
+    if normalized_target in normalized_phrase:
+        return ("alias", 0.90, f"alias in phrase: {target}")
+    if _inflection_prefix_match(normalized_phrase, normalized_target):
+        return ("alias", 0.90, f"inflection match: {target}")
+    return None
+
+
+def _inflection_prefix_match(left: str, right: str, *, min_prefix: int = 5) -> bool:
+    prefix_len = 0
+    for left_char, right_char in zip(left, right):
+        if left_char != right_char:
+            break
+        prefix_len += 1
+    if prefix_len < min_prefix:
+        return False
+    return prefix_len >= min(len(left), len(right)) - 2
 
 
 def _match_layer(

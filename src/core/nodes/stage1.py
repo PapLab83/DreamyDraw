@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.core.graph.state import GraphState
+from src.core.interpretation.style_match import resolve_style_from_text
 from src.core.prompts.composer import PromptComposer
 from src.core.prompts.lookup import execute_prompt_lookup, lookup_prompt_metadata
 from src.core.prompts.registry import PromptRegistry
@@ -43,6 +44,7 @@ _SUPPORTED_LAYER_IDS = {
     "substyle:myth_soft": "MYTH_SOFT_BASE",
     "substyle:naturalistic_animal_story": "NATURALISTIC_ANIMAL_STORY",
     "substyle:russian_folk_tale": "RUSSIAN_FOLK_TALE",
+    "substyle:CHUKOVSKY_STYLE": "CHUKOVSKY_STYLE",
     "entity:child": "ENTITY_CHILD",
     "entity:hands": "ENTITY_HANDS",
     "entity:soap": "ENTITY_SOAP",
@@ -88,7 +90,14 @@ _IMPOSSIBLE_VISUAL_RE = re.compile(
 )
 
 
-def input_analysis(state: GraphState) -> GraphState:
+_SUBSTYLE_SLUG_TO_LAYER_ID = {
+    "russian_folk_tale": "RUSSIAN_FOLK_TALE",
+    "myth_soft": "MYTH_SOFT_BASE",
+    "naturalistic_animal_story": "NATURALISTIC_ANIMAL_STORY",
+}
+
+
+def input_analysis(state: GraphState, registry: PromptRegistry | None = None) -> GraphState:
     session = state["session"]
     resume_payload = state.get("user_input")
     text, valid_resume_consumed = _input_text(session, resume_payload)
@@ -98,7 +107,7 @@ def input_analysis(state: GraphState) -> GraphState:
         session.completion_status = CompletionStatus.RUNNING
     state["user_input"] = None
 
-    normalized = _extract_normalized_request(session, text)
+    normalized = _extract_normalized_request(session, text, registry=registry)
     session.normalized_request = normalized
     session.interpretation_state.confidence.update(_analysis_confidence(normalized, text))
     session.current_node = "input_analysis"
@@ -325,10 +334,10 @@ def candidate_layer_resolution(state: GraphState, registry: PromptRegistry) -> G
             _SUPPORTED_LAYER_IDS["substyle:naturalistic_animal_story"],
             "truth animal story style",
         )
-    if request.truth_mode == "MYTH" and request.substyle == "myth_soft":
-        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["substyle:myth_soft"], "substyle=myth_soft")
-    if request.substyle == "russian_folk_tale":
-        _append_ref(refs, registry, _SUPPORTED_LAYER_IDS["substyle:russian_folk_tale"], "substyle=russian_folk_tale")
+    if request.substyle:
+        substyle_layer_id = _resolve_substyle_layer_id(request.substyle, registry)
+        if substyle_layer_id:
+            _append_ref(refs, registry, substyle_layer_id, f"substyle={request.substyle}")
 
     for subject in request.subjects:
         layer_key = f"subject:{request.truth_mode}:{subject.base_species or subject.id}"
@@ -559,7 +568,12 @@ def _stop_session(session: SessionState, *, reason: str, issues: list[str]) -> N
     session.interpretation_state.stopped_at = _now()
 
 
-def _extract_normalized_request(session: SessionState, text: str) -> NormalizedRequest:
+def _extract_normalized_request(
+    session: SessionState,
+    text: str,
+    *,
+    registry: PromptRegistry | None = None,
+) -> NormalizedRequest:
     current_config = dict(getattr(session.request, "current_config", {}) or {})
     output_count = int(
         getattr(session.request, "count", None)
@@ -625,10 +639,12 @@ def _extract_normalized_request(session: SessionState, text: str) -> NormalizedR
         )
     if normalized.utility_topic in {"HAND_WASHING_AFTER_WALK", "STRANGERS_AND_CANDY", "ROAD_SAFETY"} and not normalized.subjects:
         _add_subject(normalized, "child", "ребёнок", "person", is_character=True)
-    if "русск" in lowered and "народ" in lowered:
-        normalized.substyle = "russian_folk_tale"
+    _apply_style_resolution(normalized, text, registry)
+    if "русск" in lowered and "народ" in lowered and not normalized.substyle:
+        normalized.substyle = "RUSSIAN_FOLK_TALE"
     if normalized.truth_mode == "MYTH" and ("мягк" in lowered or _SUN_RE.search(text) or _WIND_RE.search(text)):
-        normalized.substyle = "myth_soft"
+        if not normalized.substyle:
+            normalized.substyle = "MYTH_SOFT_BASE"
     if "зимой" in lowered or "зима" in lowered:
         normalized.setting.season = "winter"
         normalized.hard_details.append("winter")
@@ -666,6 +682,68 @@ def _extract_normalized_request(session: SessionState, text: str) -> NormalizedR
     if normalized.truth_mode == "TRUTH" and ("обязательно" in lowered or "строго" in lowered) and _FANTASTIC_TRUTH_RE.search(text):
         normalized.hard_details.append("unsupported: fantastic hard detail contradicts TRUTH")
     return normalized
+
+
+def _draft_style_applicability(normalized: NormalizedRequest) -> dict[str, str]:
+    applicability: dict[str, str] = {
+        "content_formats": normalized.content_format,
+    }
+    if normalized.truth_mode:
+        applicability["truth_modes"] = normalized.truth_mode
+    if normalized.utility_mode:
+        applicability["utility_modes"] = normalized.utility_mode
+    if normalized.target_age:
+        applicability["ages"] = normalized.target_age
+    return applicability
+
+
+def _apply_style_resolution(
+    normalized: NormalizedRequest,
+    text: str,
+    registry: PromptRegistry | None,
+) -> None:
+    if registry is None:
+        return
+
+    outcome = resolve_style_from_text(
+        registry,
+        text,
+        applicability=_draft_style_applicability(normalized),
+    )
+    if outcome is None:
+        return
+
+    if outcome.resolved and outcome.layer_id:
+        normalized.substyle = outcome.layer_id
+        return
+
+    if outcome.is_applicability_conflict:
+        normalized.hard_details.append(
+            "unsupported: style applicability conflict "
+            f"({outcome.phrase.raw} / {normalized.truth_mode})"
+        )
+        return
+
+    if outcome.is_hard_unsupported:
+        normalized.hard_details.append(
+            f"unsupported: hard style requirement outside MVP scope ({outcome.phrase.raw})"
+        )
+        return
+
+    if not outcome.phrase.is_hard_requirement:
+        normalized.soft_preferences.append(outcome.phrase.raw)
+
+
+def _resolve_substyle_layer_id(substyle: str, registry: PromptRegistry) -> str | None:
+    if substyle in registry.layers_by_id:
+        layer = registry.get(substyle)
+        if layer.type in {"style", "substyle"}:
+            return substyle
+    slug_layer_id = _SUBSTYLE_SLUG_TO_LAYER_ID.get(substyle)
+    if slug_layer_id and slug_layer_id in registry.layers_by_id:
+        return slug_layer_id
+    legacy_key = f"substyle:{substyle}"
+    return _SUPPORTED_LAYER_IDS.get(legacy_key)
 
 
 def _analysis_confidence(request: NormalizedRequest, text: str) -> dict[str, int]:
