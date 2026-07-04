@@ -332,7 +332,7 @@ raw text
 
 | Field | Value |
 |-------|-------|
-| **Status** | `approved` — implementation in progress (PR-1..5) |
+| **Status** | `done (code + CI)` — manual `--executor llm` TRUTH checklist pending (runbook) |
 | **Owner** | Dev C |
 | **Estimate** | 3–5 days |
 | **Depends on** | Желательно после/параллельно с §3.2 (`is_character`); анализ можно начать сразу |
@@ -369,13 +369,13 @@ Categories 1–2: fairy opening + direct animal speech → `needs_revision`. Cat
 **D. Validation contract**  
 Strict: any non-empty `issues` → `needs_revision` — **не менять** (already in code).
 
-#### Draft acceptance criteria
+#### Acceptance criteria
 
-- [ ] Request `2 правдивых истории про лису для 5 лет` with `--executor llm` → approved texts **без** сказочного framing (на plan review зафиксировать checklist маркеров)
-- [ ] `truth_fit` fail → candidate не попадает в approved (mock + integration tests)
-- [ ] Validator: `accepted` + non-empty `issues` → impossible (unit test) — **already covered**
-- [ ] Golden scenario `test_truth_hedgehog_winter_stories_reach_approved_texts` без регрессии
-- [ ] Refiner preserves theme/subject while fixing truth violations
+- [ ] Request `2 правдивых истории про лису для 5 лет` with `--executor llm` → approved texts **без** сказочного framing — **manual gate** (runbook T1)
+- [x] `truth_fit` fail → candidate не попадает in approved (mock + integration: `test_stage1_2_truth_enforcement.py`, post-check)
+- [x] Validator: `accepted` + non-empty `issues` → impossible (unit test) — **already covered**
+- [x] Golden scenario `test_truth_hedgehog_winter_stories_reach_approved_texts` без регрессии
+- [x] Refiner preserves theme/subject while fixing truth violations (golden + LenientStage2Executor)
 
 #### Out of scope
 
@@ -396,7 +396,9 @@ See [`IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md`](IMPLEMENTATION_PLAN_
 
 **Implementation Plan**: [`IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md`](IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md) — **`approved`** (2026-07-04).
 
-**Implementation order:** PR-1 → PR-2 → PR-3 → PR-4 → PR-5. Manual `--executor llm` TRUTH checklist required before §3.3 → `done` (does not block PR-1..4 merge).
+**Implementation:** PR-1..5 complete. See [`IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md`](IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md).
+
+**Remaining gate:** manual TRUTH checklist in [`STAGE_1_2_MVP_RUNBOOK.md`](STAGE_1_2_MVP_RUNBOOK.md) § TRUTH manual checklist (`--executor llm` T1–T2).
 
 ---
 
@@ -643,7 +645,7 @@ Status: draft | under_review | approved
 | 2026-07-03 | §1.4: backlog context вместо decision log; решения перенесены в задачи |
 | 2026-07-03 | §3.1 done: MVP defaults (TRUTH, ages 3/5, Stage 1 heuristics note) в product/runbook/orchestration docs |
 | 2026-07-04 | §3.2 done: Stage 1 style cascade (registry + RapidFuzz + heuristic tail), TRUTH `is_character`, tests |
-| 2026-07-04 | §3.3 approved: Implementation Plan signed; PR-1..5 scope (grounding + post-check cat 1–2) |
+| 2026-07-04 | §3.3 done (code + CI): Stage 2 layer grounding, TRUTH tasks, post-check cat 1–2, LenientStage2Executor tests; manual llm gate in runbook |
 
 ---
 
@@ -653,7 +655,7 @@ Status: draft | under_review | approved
 |------|-------|--------|
 | §3.1 Doc mini-pass | Dev A | `done` |
 | §3.2 Stage 1 interpretation | Dev B | `done` |
-| §3.3 Stage 2 TRUTH | Dev C | `approved` |
+| §3.3 Stage 2 TRUTH | Dev C | `done (code + CI)` |
 | §3.4 Length limits | TBD | `draft` |
 | §3.5 Manual tests | TBD | `draft` |
 | §3.6 Doc alignment | TBD | `draft` |

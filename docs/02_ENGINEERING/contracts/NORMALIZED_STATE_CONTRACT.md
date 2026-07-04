@@ -377,3 +377,15 @@ is_character = true
   ]
 }
 ```
+
+### Stage 2 runtime prompt bodies (MVP §3.3)
+
+`prompt_context` in session state stores **metadata only** (`resolved_layers`, ids, hashes). Stage 2 LLM executors load full markdown bodies at runtime via `PromptComposer` with `body_policy = include_bodies_runtime`.
+
+| Storage | Contains layer bodies? |
+| --- | --- |
+| `prompt_context` / session JSON | No — ids, types, roles, source paths, hashes |
+| `stage_prompt_context.entries` (durable) | No — `body_policy`, layer ids, `stage_context_hash` |
+| Stage 2 LLM prompt payload (`layer_grounding.bodies`) | Yes — runtime only, not persisted |
+
+All resolved modes benefit (TRUTH, FAIRY_TALE, MYTH, age, style, entity). TRUTH additionally uses deterministic post-check after LLM validator accept.

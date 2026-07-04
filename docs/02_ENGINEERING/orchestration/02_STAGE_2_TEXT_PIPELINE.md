@@ -1,5 +1,37 @@
 # Stage 2 Text Pipeline
 
+## Stage 2 prompt grounding and TRUTH enforcement (MVP §3.3)
+
+Stage 2 LLM nodes (`candidate_text_generator`, `scorer`, `candidate_validator`, `candidate_refiner`) build runtime prompt context through `PromptComposer` with:
+
+```text
+body_policy = include_bodies_runtime
+```
+
+For each call, `LLMStage2TextExecutor` serializes:
+
+- `normalized_request_summary` — including `truth_mode`, subjects, `is_character`, age, utility;
+- `layer_grounding.metadata_constraints` — short descriptions and YAML `constraints[]` per resolved layer;
+- `layer_grounding.bodies` — full markdown bodies of active resolved layers and applicable fallbacks;
+- stage inputs and JSON output contract.
+
+This applies to **all** truth modes and layer types resolved in Stage 1 (`TRUTH`, `FAIRY_TALE`, `MYTH`, age, style, entity, utility). TRUTH is the primary acceptance focus; FAIRY_TALE and other modes benefit from the same infrastructure.
+
+Full layer bodies are **runtime-only**. They are not persisted in `stage_prompt_context.entries`, session JSON, or trace refs. Durable entries store `body_policy`, layer ids, and hashes only.
+
+Additional TRUTH enforcement (same MVP):
+
+| Layer | Behavior |
+| --- | --- |
+| TRUTH task strings | Generator / scorer / validator / refiner prompts include TRUTH-specific instructions when `truth_mode = TRUTH`. |
+| `character_consistency` | Auto-`pass` when no `character_profile` and all subjects have `is_character = false`. |
+| Scorer normalization | Missing hard gate in raw score → `unknown`, not optimistic `pass`. |
+| Deterministic post-check | After LLM validator returns `accepted`, `apply_truth_post_check()` runs for TRUTH only. Categories 1–2: fairy opening + direct animal speech as fact → downgrade to `needs_revision` with `truth_fit` issue; refiner loop fixes before durable accept. |
+
+Code: `src/core/nodes/stage2.py`, `src/core/stage2_llm_executor.py`, `src/core/stage2_gate_policy.py`, `src/core/stage2_truth_post_check.py`.
+
+Manual TRUTH checklist for real LLM smoke: `docs/02_ENGINEERING/implementation/STAGE_1_2_MVP_RUNBOOK.md` § TRUTH manual checklist.
+
 ### Stage 2 nodes
 
 #### `candidate_text_generator`
@@ -237,6 +269,7 @@ Rules:
 - `accepted_count` остаётся metric/debug counter и не является достаточным stop condition, потому что selector обязан исключать duplicate themes.
 - `selector_eligible_unique_accepted_count` считает accepted versions, которые могут быть выбраны selector после duplicate-theme exclusion и critical gate exclusion.
 - When validator returns `accepted`, the validator node or the immediate routing transition must atomically update `validated_candidate_versions`, `validation_loop_state.accepted_count` and `validation_loop_state.selector_eligible_unique_accepted_count`.
+- For `truth_mode = TRUTH`, accepted status from the LLM is not final until deterministic TRUTH post-check passes on the active candidate text. Post-check failure downgrades to `needs_revision` with `truth_fit` issues before any durable accepted version is written.
 - `selector_eligible_unique_accepted_count` must be recomputed or updated from accepted validated versions, `deduplication_results`, accepted themes and critical gate status.
 
 Форма `validated_candidate_versions`:
