@@ -152,7 +152,7 @@ def test_persisted_session_json_does_not_store_prompt_bodies_in_trace_refs(tmp_p
     assert "# Назначение" not in serialized_trace_refs
     assert "full_prompt" not in serialized_trace_refs
     assert "prompt_body" not in serialized_trace_refs
-    assert "bodies" not in serialized_trace_refs
+    assert "Не изображать животных говорящими" not in serialized_trace_refs
     assert "Первый спокойный текст." not in serialized_trace_refs
 
 

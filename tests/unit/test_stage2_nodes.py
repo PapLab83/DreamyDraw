@@ -249,6 +249,32 @@ def test_validator_reads_active_refined_version_from_loop_state():
     assert result.validated_candidate_versions[-1].source == "refinement"
 
 
+def test_truth_post_check_downgrades_accepted_fairy_opening_in_truth_mode():
+    registry, composer = _registry_composer()
+    session = _truth_session_with_ranked_candidates(
+        candidate_text="Жила-была лиса и искала укрытие в снегу.",
+    )
+    executor = FakeStage2TextExecutor()
+
+    result = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
+
+    assert result.validation_results[-1].status == "needs_revision"
+    assert any(issue.type == "truth_fit" for issue in result.validation_results[-1].issues)
+    assert result.validated_candidate_versions == []
+
+
+def test_truth_post_check_allows_fairy_opening_in_fairy_tale_mode():
+    registry, composer = _registry_composer()
+    session = _session_with_ranked_candidates()
+    session.candidate_texts[0].text = "Жила-была лиса в сказочном лесу."
+    executor = FakeStage2TextExecutor()
+
+    result = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
+
+    assert result.validation_results[-1].status == "accepted"
+    assert result.validated_candidate_versions[-1].version_id == "c01_v1"
+
+
 def test_refiner_writes_refined_versions_only_and_updates_active_cursor():
     registry, composer = _registry_composer()
     session = _session_with_ranked_candidates()
@@ -618,6 +644,33 @@ def _score(candidate_id: str, total: float, gates: dict[str, str] | None = None)
         score_components={"novelty": total, "visual_potential": total},
         total_score=total,
     )
+
+
+def _truth_session_with_ranked_candidates(*, candidate_text: str) -> SessionState:
+    session = _stage1_ready_session(output_count=1)
+    session.normalized_request.truth_mode = "TRUTH"
+    session.normalized_request.subjects[0].is_character = False
+    session.candidate_texts = [
+        CandidateText(
+            candidate_id="c01",
+            theme="Лиса зимой",
+            text=candidate_text,
+            questions=["Что делала лиса?"],
+            used_subjects=["fox"],
+            utility_points=[],
+            expected_visual_idea="Лиса в лесу",
+        )
+    ]
+    session.ranked_candidates = [
+        RankedCandidate(candidate_id="c01", rank=1, total_score=0.9, hard_gates_passed=True),
+    ]
+    session.validation_loop_state.current_rank_index = 0
+    session.validation_loop_state.active_candidate_id = "c01"
+    session.validation_loop_state.active_version_id = "c01_v1"
+    session.validation_loop_state.active_version_origin = "draft"
+    session.validation_loop_state.active_text_source = "candidate_texts"
+    session.stage_status.validation_loop.status = "running"
+    return session
 
 
 def _session_with_ranked_candidates() -> SessionState:

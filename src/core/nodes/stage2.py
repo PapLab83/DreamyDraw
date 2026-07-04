@@ -11,6 +11,7 @@ from src.core.graph.state import GraphState
 from src.core.prompts.composer import PromptComposer
 from src.core.prompts.registry import PromptRegistry
 from src.core.stage2_gate_policy import apply_character_consistency_gate_policy
+from src.core.stage2_truth_post_check import apply_truth_post_check
 from src.models.schemas import (
     ApprovedText,
     CandidateScore,
@@ -224,6 +225,11 @@ def candidate_validator(
         issues=[ValidationIssue(**issue) for issue in raw_result.get("issues", [])],
         required_fixes=list(raw_result.get("required_fixes", [])),
         summary=raw_result.get("summary"),
+    )
+    validation = apply_truth_post_check(
+        validation,
+        truth_mode_value=session.normalized_request.truth_mode,
+        text=str(getattr(active, "text", "")),
     )
     session.validation_results.append(validation)
     session.pipeline_counters.validation_attempts += 1
