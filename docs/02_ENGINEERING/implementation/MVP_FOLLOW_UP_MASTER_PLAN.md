@@ -332,8 +332,8 @@ raw text
 
 | Field | Value |
 |-------|-------|
-| **Status** | `draft` |
-| **Owner** | Dev C or Dev B (after / parallel to §3.2) |
+| **Status** | `approved` — implementation in progress (PR-1..5) |
+| **Owner** | Dev C |
 | **Estimate** | 3–5 days |
 | **Depends on** | Желательно после/параллельно с §3.2 (`is_character`); анализ можно начать сразу |
 | **Blocks** | §3.5 manual tests (requests #2, #8, #13) |
@@ -353,27 +353,27 @@ System knows which rule layer was selected,
 but generated result does not always behave as if that rule was active.
 ```
 
-Дополнительный defect: validator может вернуть `accepted` при non-empty `issues`.
+Дополнительный defect (P5): validator `accepted` + non-empty `issues` — **уже закрыт** в executor + unit tests.
 
-#### Possible approaches (не финально)
+#### Approved approach (lead 2026-07-04)
 
-**A. Prompt grounding (обязательный минимум)**  
-Generator / scorer / validator / refiner получают **тела** активных TRUTH layers через `PromptComposer`, не только layer ids.
+**A. Prompt grounding (PR-1)** — universal  
+Generator / scorer / validator / refiner: `include_bodies_runtime` + `layer_grounding` in `_build_prompt` для **всех** режимов.
 
-**B. Scorer / validator hardening**  
-Explicit `truth_fit=fail` для fairy-tale markers в TRUTH; список маркеров согласовать на plan review.
+**B. Scorer / validator hardening (PR-2)**  
+TRUTH task strings; `character_consistency` auto-pass без character; `_normalize_score` missing gate → `unknown`.
 
-**C. Deterministic post-check (optional safety net)**  
-Lightweight keyword/regex gate before approve — обсудить false positives.
+**C. Deterministic post-check (PR-3 — approved)**  
+Categories 1–2: fairy opening + direct animal speech → `needs_revision`. Cat 3 time-permitting; Cat 4 defer.
 
-**D. Fix validation contract**  
-`status=accepted` forbidden when `issues` non-empty.
+**D. Validation contract**  
+Strict: any non-empty `issues` → `needs_revision` — **не менять** (already in code).
 
 #### Draft acceptance criteria
 
 - [ ] Request `2 правдивых истории про лису для 5 лет` with `--executor llm` → approved texts **без** сказочного framing (на plan review зафиксировать checklist маркеров)
 - [ ] `truth_fit` fail → candidate не попадает в approved (mock + integration tests)
-- [ ] Validator: `accepted` + non-empty `issues` → impossible (unit test)
+- [ ] Validator: `accepted` + non-empty `issues` → impossible (unit test) — **already covered**
 - [ ] Golden scenario `test_truth_hedgehog_winter_stories_reach_approved_texts` без регрессии
 - [ ] Refiner preserves theme/subject while fixing truth violations
 
@@ -383,14 +383,20 @@ Lightweight keyword/regex gate before approve — обсудить false positiv
 - Length limits (§3.4)
 - Teaching utility deep pass (unless regression)
 
-#### Open questions
+#### Resolved (lead 2026-07-04)
 
-- Нужен ли deterministic gate в MVP или достаточно LLM scorer+validator?
-- Список «сказочных маркеров» — продуктовый review с lead?
+See [`IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md`](IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md) §7:
+
+- PR-3 post-check in MVP — **yes** (categories 1–2)
+- Marker list §3.4.C — **approved** (+ runbook appendix PR-5)
+- Universal grounding — **PR-1 one PR**
+- No body token cap in MVP; measure on 3 manual sessions
 
 #### Deliverable before code
 
-**Implementation Plan**: enforcement points in pipeline, marker list draft, test strategy (scripted LLM vs real LLM manual).
+**Implementation Plan**: [`IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md`](IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md) — **`approved`** (2026-07-04).
+
+**Implementation order:** PR-1 → PR-2 → PR-3 → PR-4 → PR-5. Manual `--executor llm` TRUTH checklist required before §3.3 → `done` (does not block PR-1..4 merge).
 
 ---
 
@@ -637,6 +643,7 @@ Status: draft | under_review | approved
 | 2026-07-03 | §1.4: backlog context вместо decision log; решения перенесены в задачи |
 | 2026-07-03 | §3.1 done: MVP defaults (TRUTH, ages 3/5, Stage 1 heuristics note) в product/runbook/orchestration docs |
 | 2026-07-04 | §3.2 done: Stage 1 style cascade (registry + RapidFuzz + heuristic tail), TRUTH `is_character`, tests |
+| 2026-07-04 | §3.3 approved: Implementation Plan signed; PR-1..5 scope (grounding + post-check cat 1–2) |
 
 ---
 
@@ -646,7 +653,7 @@ Status: draft | under_review | approved
 |------|-------|--------|
 | §3.1 Doc mini-pass | Dev A | `done` |
 | §3.2 Stage 1 interpretation | Dev B | `done` |
-| §3.3 Stage 2 TRUTH | TBD | `draft` |
+| §3.3 Stage 2 TRUTH | Dev C | `approved` |
 | §3.4 Length limits | TBD | `draft` |
 | §3.5 Manual tests | TBD | `draft` |
 | §3.6 Doc alignment | TBD | `draft` |

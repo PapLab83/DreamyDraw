@@ -67,8 +67,13 @@ def test_generator_writes_canonical_candidates_context_and_no_version_ids():
     assert result.pipeline_counters.generated_candidates == 3
     assert result.stage_status.candidate_text_generator.status == "completed"
     assert result.stage_prompt_context.entries[-1].stage == "candidate_text_generator"
-    assert result.stage_prompt_context.entries[-1].body_policy == "lazy_not_persisted"
-    assert "bodies" not in executor.calls["generate_candidates"][0]["runtime_context"]
+    assert result.stage_prompt_context.entries[-1].body_policy == "include_bodies_runtime"
+    runtime_context = executor.calls["generate_candidates"][0]["runtime_context"]
+    assert "bodies" in runtime_context
+    assert "FAIRY_TALE_BASE" in runtime_context["bodies"]
+    assert "# Назначение слоя" in runtime_context["bodies"]["FAIRY_TALE_BASE"]
+    assert "metadata_constraints" in runtime_context
+    assert "FAIRY_TALE_BASE" in runtime_context["metadata_constraints"]
 
 
 def test_generator_rewrites_noncanonical_executor_ids_to_canonical_ids():
@@ -368,7 +373,10 @@ def test_full_prompt_bodies_are_absent_from_stage_prompt_entries():
     serialized = str([entry.model_dump() for entry in session.stage_prompt_context.entries])
     assert "# Назначение" not in serialized
     assert "bodies" not in serialized
-    assert all(entry.body_policy == "lazy_not_persisted" for entry in session.stage_prompt_context.entries)
+    policies = {entry.stage: entry.body_policy for entry in session.stage_prompt_context.entries}
+    assert policies["candidate_text_generator"] == "include_bodies_runtime"
+    assert policies["topic_deduplicator"] == "lazy_not_persisted"
+    assert policies["scorer"] == "include_bodies_runtime"
 
 
 def test_validation_cursor_helpers_are_deterministic():

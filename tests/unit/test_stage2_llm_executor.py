@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.core.stage2_llm_executor import LLMStage2TextExecutor, REQUIRED_HARD_GATES
+from src.core.stage2_llm_executor import LLMStage2TextExecutor, REQUIRED_HARD_GATES, _layer_grounding
 from src.providers.base import BaseLLMProvider
 
 
@@ -22,6 +22,25 @@ class ScriptedLLMProvider(BaseLLMProvider):
 
     def generate_questions(self, text: str) -> list[str]:
         raise AssertionError("Stage 2 executor must not call generate_questions")
+
+
+def test_build_prompt_includes_layer_grounding() -> None:
+    provider = ScriptedLLMProvider([json.dumps({"candidates": [{"theme": "Тема", "text": "Текст"}]})])
+    executor = LLMStage2TextExecutor(provider)
+
+    executor.generate_candidates(_runtime_context_with_grounding(), count=1)
+
+    prompt = provider.prompts[0]
+    assert '"layer_grounding"' in prompt
+    assert "TRUTH_BASE" in prompt
+    assert "Не изображать животных говорящими" in prompt
+    assert '"metadata_constraints"' in prompt
+    assert '"include_bodies_runtime"' in prompt
+
+
+def test_layer_grounding_omits_empty_blocks() -> None:
+    assert _layer_grounding({}) == {}
+    assert _layer_grounding({"metadata_constraints": {}, "bodies": {}}) == {}
 
 
 def test_generate_candidates_parses_fenced_json_and_limits_count() -> None:
@@ -277,6 +296,22 @@ def _valid_response_for(method_name: str) -> str:
     if method_name == "refine_candidate":
         return json.dumps({"theme": "Тема", "text": "Текст", "questions": [], "changes_summary": "ok"})
     raise AssertionError(method_name)
+
+
+def _runtime_context_with_grounding() -> dict:
+    return {
+        **_runtime_context(),
+        "body_policy": "include_bodies_runtime",
+        "metadata_constraints": {
+            "TRUTH_BASE": {
+                "short_description": "Базовые правила реального мира",
+                "constraints": ["Не изображать животных говорящими"],
+            }
+        },
+        "bodies": {
+            "TRUTH_BASE": "# Назначение слоя\n\nНе изображать животных говорящими.",
+        },
+    }
 
 
 def _runtime_context() -> dict:

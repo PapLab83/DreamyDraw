@@ -432,7 +432,9 @@ class LLMStage2TextExecutor:
                 "unresolved_details": runtime_context.get("unresolved_details", []),
                 "stage_context_hash": runtime_context.get("stage_context_hash"),
             },
+            "layer_grounding": _layer_grounding(runtime_context),
             "stage_context": {
+                "body_policy": runtime_context.get("body_policy"),
                 "stage_instructions": runtime_context.get("stage_instructions", []),
                 "context_blocks": runtime_context.get("context_blocks", []),
                 "hard_details": runtime_context.get("hard_details", []),
@@ -448,6 +450,17 @@ class LLMStage2TextExecutor:
             "Do not perform or plan later media work; this stage only writes and evaluates text.\n"
             f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
         )
+
+
+def _layer_grounding(runtime_context: dict[str, Any]) -> dict[str, Any]:
+    grounding: dict[str, Any] = {}
+    metadata = runtime_context.get("metadata_constraints")
+    if isinstance(metadata, dict) and metadata:
+        grounding["metadata_constraints"] = metadata
+    bodies = runtime_context.get("bodies")
+    if isinstance(bodies, dict) and bodies:
+        grounding["bodies"] = bodies
+    return grounding
 
 
 def _stage_inputs(runtime_context: dict[str, Any]) -> dict[str, Any]:

@@ -28,6 +28,7 @@ from src.models.schemas import (
 )
 
 DEFAULT_CANDIDATE_COUNT = 20
+STAGE2_LLM_BODY_POLICY = "include_bodies_runtime"
 REQUIRED_HARD_GATES = (
     "safety",
     "truth_fit",
@@ -68,6 +69,7 @@ def candidate_text_generator(
         prompt_context=session.prompt_context,
         stage="candidate_text_generator",
         stage_inputs={"output_count": session.normalized_request.output_count, "candidate_count": count},
+        body_policy=STAGE2_LLM_BODY_POLICY,
     )
     session.stage_prompt_context.entries.append(build.durable_entry)
 
@@ -135,6 +137,7 @@ def scorer(
         prompt_context=session.prompt_context,
         stage="scorer",
         stage_inputs={"candidate_texts": candidate_payloads},
+        body_policy=STAGE2_LLM_BODY_POLICY,
     )
     build.runtime_context["candidate_texts"] = candidate_payloads
     session.stage_prompt_context.entries.append(build.durable_entry)
@@ -205,6 +208,7 @@ def candidate_validator(
         version_id=version_id,
         attempt=attempt,
         stage_inputs={"candidate_text": candidate_payload},
+        body_policy=STAGE2_LLM_BODY_POLICY,
     )
     build.runtime_context["candidate_text"] = candidate_payload
     session.stage_prompt_context.entries.append(build.durable_entry)
@@ -280,6 +284,7 @@ def candidate_refiner(
             "validator_issues": [issue.model_dump() for issue in latest_validation.issues],
             "required_fixes": list(latest_validation.required_fixes),
         },
+        body_policy=STAGE2_LLM_BODY_POLICY,
     )
     build.runtime_context["candidate_text"] = candidate_payload
     build.runtime_context["validator_issues"] = [issue.model_dump() for issue in latest_validation.issues]
