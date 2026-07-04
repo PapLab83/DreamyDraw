@@ -6,6 +6,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.core.stage2_gate_policy import (
+    append_truth_task,
+    apply_character_consistency_gate_policy,
+    requires_character_consistency,
+    scorer_task,
+)
 from src.core.utils.json_parser import LLMJsonParseError, parse_llm_json
 from src.providers.base import BaseLLMProvider
 
@@ -63,9 +69,11 @@ class LLMStage2TextExecutor:
                     }
                 ]
             },
-            task=(
+            task=append_truth_task(
                 f"Generate up to {count} distinct text candidates. "
-                "Return fewer if you cannot satisfy the contract safely."
+                "Return fewer if you cannot satisfy the contract safely.",
+                runtime_context.get("normalized_request_summary"),
+                stage="generate_candidates",
             ),
         )
         parsed = self._call_json(prompt, "stage2.generate_candidates", default=None)
@@ -198,9 +206,10 @@ class LLMStage2TextExecutor:
                     }
                 ]
             },
-            task=(
-                "Score each candidate. Use only pass, fail, or unknown for every hard gate. "
-                f"Return scores only for these exact candidate_id values: {sorted(allowed_ids)}."
+            task=scorer_task(
+                "Score each candidate. Use only pass, fail, or unknown for every hard gate.",
+                runtime_context.get("normalized_request_summary"),
+                allowed_ids=allowed_ids,
             ),
         )
         parsed = self._call_json(prompt, "stage2.score_candidates", default=None)
@@ -223,7 +232,10 @@ class LLMStage2TextExecutor:
             if candidate_id not in allowed_ids:
                 rejected.append({"candidate_id": candidate_id, "reason": "unknown_candidate_id"})
                 continue
-            hard_gates = _normalize_hard_gates(item.get("hard_gates"))
+            hard_gates = apply_character_consistency_gate_policy(
+                _normalize_hard_gates(item.get("hard_gates")),
+                runtime_context.get("normalized_request_summary"),
+            )
             score_components = {
                 str(key): _clamp01(value)
                 for key, value in (item.get("score_components") or {}).items()
@@ -261,7 +273,11 @@ class LLMStage2TextExecutor:
                 ],
                 "required_fixes": ["string"],
             },
-            task="Validate the current candidate against Stage 2 hard gates.",
+            task=append_truth_task(
+                _validation_task(runtime_context),
+                runtime_context.get("normalized_request_summary"),
+                stage="validate_candidate",
+            ),
         )
         parsed = self._call_json(prompt, "stage2.validate_candidate", default=None)
         if not isinstance(parsed, dict):
@@ -305,9 +321,13 @@ class LLMStage2TextExecutor:
                 "questions": ["string"],
                 "changes_summary": "string",
             },
-            task=(
-                "Revise only the current candidate text according to validator issues. "
-                "Preserve protected subject, truth mode, hard details, and character continuity."
+            task=append_truth_task(
+                (
+                    "Revise only the current candidate text according to validator issues. "
+                    "Preserve protected subject, truth mode, hard details, and character continuity."
+                ),
+                runtime_context.get("normalized_request_summary"),
+                stage="refine_candidate",
             ),
         )
         parsed = self._call_json(prompt, "stage2.refine_candidate", default=None)
@@ -450,6 +470,17 @@ class LLMStage2TextExecutor:
             "Do not perform or plan later media work; this stage only writes and evaluates text.\n"
             f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
         )
+
+
+def _validation_task(runtime_context: dict[str, Any]) -> str:
+    task = "Validate the current candidate against Stage 2 hard gates."
+    summary = runtime_context.get("normalized_request_summary")
+    if not requires_character_consistency(summary if isinstance(summary, dict) else None):
+        task += (
+            " No character_profile and no required persistent character: "
+            "do not fail character_consistency unless a conflicting named character appears."
+        )
+    return task
 
 
 def _layer_grounding(runtime_context: dict[str, Any]) -> dict[str, Any]:

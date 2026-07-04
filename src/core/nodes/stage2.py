@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from src.core.graph.state import GraphState
 from src.core.prompts.composer import PromptComposer
 from src.core.prompts.registry import PromptRegistry
+from src.core.stage2_gate_policy import apply_character_consistency_gate_policy
 from src.models.schemas import (
     ApprovedText,
     CandidateScore,
@@ -143,7 +144,9 @@ def scorer(
     session.stage_prompt_context.entries.append(build.durable_entry)
 
     raw_scores = text_executor.score_candidates(build.runtime_context)
-    session.scores = [_normalize_score(item) for item in raw_scores]
+    session.scores = [
+        _normalize_score(item, summary=_gate_policy_summary(session)) for item in raw_scores
+    ]
     session.pipeline_counters.scored_candidates = len(session.scores)
     _complete_stage(session, "scorer")
     session.current_node = "scorer"
@@ -522,8 +525,19 @@ def _duplicate_candidate_ids(session: SessionState) -> set[str]:
     }
 
 
-def _normalize_score(raw: dict[str, Any]) -> CandidateScore:
-    gates = {gate: raw.get("hard_gates", {}).get(gate, "pass") for gate in REQUIRED_HARD_GATES}
+def _gate_policy_summary(session: SessionState) -> dict[str, Any]:
+    request = session.normalized_request
+    profile = request.character_profile
+    return {
+        "truth_mode": request.truth_mode,
+        "character_profile": profile.model_dump() if profile is not None else None,
+        "subjects": [{"is_character": subject.is_character} for subject in request.subjects],
+    }
+
+
+def _normalize_score(raw: dict[str, Any], *, summary: dict[str, Any] | None = None) -> CandidateScore:
+    gates = {gate: raw.get("hard_gates", {}).get(gate, "unknown") for gate in REQUIRED_HARD_GATES}
+    gates = apply_character_consistency_gate_policy(gates, summary)
     components = {
         str(key): float(value)
         for key, value in raw.get("score_components", {}).items()

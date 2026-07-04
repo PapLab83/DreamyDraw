@@ -17,6 +17,7 @@ from src.core.nodes.stage2 import (
     ranker,
     scorer,
     topic_deduplicator,
+    _normalize_score,
 )
 from src.core.prompts.composer import PromptComposer
 from src.core.prompts.registry import PromptRegistry
@@ -154,6 +155,27 @@ def test_scorer_writes_required_hard_gates_and_numeric_components():
     assert all(isinstance(value, float) for value in result.scores[0].score_components.values())
     assert result.pipeline_counters.scored_candidates == 2
     assert result.stage_prompt_context.entries[-1].stage == "scorer"
+
+
+def test_normalize_score_defaults_missing_hard_gate_to_unknown():
+    score = _normalize_score(
+        {"candidate_id": "c01", "hard_gates": {"safety": "pass"}},
+        summary={"character_profile": None, "subjects": [{"is_character": True}]},
+    )
+
+    assert score.hard_gates["safety"] == "pass"
+    assert score.hard_gates["truth_fit"] == "unknown"
+
+
+def test_normalize_score_auto_passes_character_consistency_without_character():
+    hard_gates = {gate: "pass" for gate in REQUIRED_GATES}
+    hard_gates["character_consistency"] = "fail"
+    score = _normalize_score(
+        {"candidate_id": "c01", "hard_gates": hard_gates},
+        summary={"character_profile": None, "subjects": [{"is_character": False}]},
+    )
+
+    assert score.hard_gates["character_consistency"] == "pass"
 
 
 def test_ranker_orders_excludes_failed_gates_and_initializes_cursor_idempotently():
@@ -372,7 +394,7 @@ def test_full_prompt_bodies_are_absent_from_stage_prompt_entries():
 
     serialized = str([entry.model_dump() for entry in session.stage_prompt_context.entries])
     assert "# Назначение" not in serialized
-    assert "bodies" not in serialized
+    assert "Не изображать животных говорящими" not in serialized
     policies = {entry.stage: entry.body_policy for entry in session.stage_prompt_context.entries}
     assert policies["candidate_text_generator"] == "include_bodies_runtime"
     assert policies["topic_deduplicator"] == "lazy_not_persisted"

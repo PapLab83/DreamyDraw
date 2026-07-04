@@ -116,6 +116,62 @@ def test_deduplicate_topics_ignores_unknown_candidate_ids() -> None:
     assert executor.llm_call_count == 1
 
 
+def test_score_candidates_auto_passes_character_consistency_without_character() -> None:
+    gates = {gate: "pass" for gate in REQUIRED_HARD_GATES}
+    gates["character_consistency"] = "fail"
+    provider = ScriptedLLMProvider(
+        [
+            json.dumps(
+                {
+                    "scores": [
+                        {
+                            "candidate_id": "c01",
+                            "hard_gates": gates,
+                            "score_components": {"novelty": 0.5},
+                            "total_score": 0.5,
+                        }
+                    ]
+                }
+            )
+        ]
+    )
+    executor = LLMStage2TextExecutor(provider, max_retries=0)
+    runtime_context = _runtime_context()
+    runtime_context["normalized_request_summary"]["character_profile"] = None
+    runtime_context["normalized_request_summary"]["subjects"] = [{"is_character": False}]
+
+    result = executor.score_candidates(runtime_context)
+
+    assert result[0]["hard_gates"]["character_consistency"] == "pass"
+
+
+def test_truth_mode_adds_scorer_task_guidance() -> None:
+    provider = ScriptedLLMProvider(
+        [
+            json.dumps(
+                {
+                    "scores": [
+                        {
+                            "candidate_id": "c01",
+                            "hard_gates": {gate: "pass" for gate in REQUIRED_HARD_GATES},
+                            "score_components": {"novelty": 0.5},
+                            "total_score": 0.5,
+                        }
+                    ]
+                }
+            )
+        ]
+    )
+    executor = LLMStage2TextExecutor(provider, max_retries=0)
+    runtime_context = _runtime_context()
+    runtime_context["normalized_request_summary"]["truth_mode"] = "TRUTH"
+
+    executor.score_candidates(runtime_context)
+
+    assert "TRUTH mode" in provider.prompts[0]
+    assert "truth_fit" in provider.prompts[0]
+
+
 def test_score_candidates_clamps_scores_and_requires_hard_gates() -> None:
     gates = {gate: "pass" for gate in REQUIRED_HARD_GATES}
     gates["safety"] = "weird"
