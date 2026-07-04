@@ -83,7 +83,18 @@ _UNSUPPORTED_RE = re.compile(
     re.I,
 )
 _SOFT_STYLE_RE = re.compile(r"в\s+([^.!?]*(?:импрессионистичн|акварельн)[^.!?]*)", re.I)
-_FANTASTIC_TRUTH_RE = re.compile(r"(волшебн|магическ|колдов|летала?\s+на\s+волшебн|говор(?:ит|ила?)\s+человеческ)", re.I)
+_CHARACTER_MARKER_RE = re.compile(
+    r"\b(герой|персонаж|назови|зовут|имя)\b",
+    re.I,
+)
+_YOUNG_SPECIES_TRAIT_RE = re.compile(
+    r"маленьк(?:ий|ая|ое|ого|ую)\s+(?:\b\w+\b\s+){0,2}(?:бельчонок|белчонок|зайчонок|лисичк|ежонок|еженок)",
+    re.I,
+)
+_FANTASTIC_TRUTH_RE = re.compile(
+    r"(волшебн|магическ|колдов|летала?\s+на\s+волшебн|говор(?:ит|ила?)\s+человеческ)",
+    re.I,
+)
 _IMPOSSIBLE_VISUAL_RE = re.compile(
     r"\b(точн(?:ая|ое|ый)\s+картин|фотореалистич|анимаци|мультфильм|сгенерируй\s+картин)\b",
     re.I,
@@ -616,15 +627,45 @@ def _extract_normalized_request(
     elif meaningful_text and (normalized.truth_mode or normalized.utility_mode):
         normalized.target_age = "5"
     if _FOX_RE.search(text):
-        _add_subject(normalized, "fox", "лиса", "animal", is_character=True)
+        _add_subject(
+            normalized,
+            "fox",
+            "лиса",
+            "animal",
+            is_character=_default_animal_is_character(normalized, text, lowered),
+        )
     if _HEDGEHOG_RE.search(text):
-        _add_subject(normalized, "hedgehog", "ёжик", "animal", is_character=True)
+        _add_subject(
+            normalized,
+            "hedgehog",
+            "ёжик",
+            "animal",
+            is_character=_default_animal_is_character(normalized, text, lowered),
+        )
     if _HARE_RE.search(text):
-        _add_subject(normalized, "hare", "заяц", "animal", is_character=True)
+        _add_subject(
+            normalized,
+            "hare",
+            "заяц",
+            "animal",
+            is_character=_default_animal_is_character(normalized, text, lowered),
+        )
     if _SQUIRREL_RE.search(text):
-        _add_subject(normalized, "squirrel", "белка", "animal", is_character=True)
+        _add_subject(
+            normalized,
+            "squirrel",
+            "белка",
+            "animal",
+            is_character=_default_animal_is_character(normalized, text, lowered),
+        )
     if _PARROT_RE.search(text):
-        subject = _add_subject(normalized, "parrot", "попугай", "animal", is_character=True)
+        subject = _add_subject(
+            normalized,
+            "parrot",
+            "попугай",
+            "animal",
+            is_character=_default_animal_is_character(normalized, text, lowered),
+        )
         if "какаду" in lowered:
             subject.unresolved_detail = "какаду"
     if _SUN_RE.search(text):
@@ -663,6 +704,9 @@ def _extract_normalized_request(
             can_replace_required_subjects=False,
         )
     if "тим" in lowered and any(subject.id == "squirrel" for subject in normalized.subjects):
+        for subject in normalized.subjects:
+            if subject.id == "squirrel":
+                subject.is_character = True
         normalized.character_profile = CharacterProfile(
             name="Тим",
             base_subject_id="squirrel",
@@ -682,6 +726,26 @@ def _extract_normalized_request(
     if normalized.truth_mode == "TRUTH" and ("обязательно" in lowered or "строго" in lowered) and _FANTASTIC_TRUTH_RE.search(text):
         normalized.hard_details.append("unsupported: fantastic hard detail contradicts TRUTH")
     return normalized
+
+
+def _default_animal_is_character(
+    normalized: NormalizedRequest,
+    text: str,
+    lowered: str,
+) -> bool:
+    if normalized.truth_mode != "TRUTH":
+        return True
+    return _has_explicit_character_markers(text, lowered)
+
+
+def _has_explicit_character_markers(text: str, lowered: str) -> bool:
+    if _CHARACTER_MARKER_RE.search(text):
+        return True
+    if _YOUNG_SPECIES_TRAIT_RE.search(text):
+        return True
+    if "тим" in lowered and _SQUIRREL_RE.search(text):
+        return True
+    return False
 
 
 def _draft_style_applicability(normalized: NormalizedRequest) -> dict[str, str]:

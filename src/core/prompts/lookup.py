@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from rapidfuzz import fuzz
+
 from src.core.prompts.models import (
     ExecutionLookupEnvelope,
     MetadataLookupCandidate,
@@ -178,7 +180,19 @@ def _match_style_phrase(phrase: str, target: str) -> tuple[str, float, str] | No
         return ("alias", 0.90, f"alias in phrase: {target}")
     if _inflection_prefix_match(normalized_phrase, normalized_target):
         return ("alias", 0.90, f"inflection match: {target}")
+    fuzzy_score = _fuzzy_style_score(normalized_phrase, normalized_target)
+    if fuzzy_score >= 0.75:
+        return ("fuzzy", fuzzy_score, f"fuzzy match: {target}")
     return None
+
+
+def _fuzzy_style_score(normalized_phrase: str, normalized_target: str) -> float:
+    if not normalized_phrase or not normalized_target:
+        return 0.0
+    return max(
+        fuzz.WRatio(normalized_phrase, normalized_target),
+        fuzz.token_set_ratio(normalized_phrase, normalized_target),
+    ) / 100.0
 
 
 def _inflection_prefix_match(left: str, right: str, *, min_prefix: int = 5) -> bool:
