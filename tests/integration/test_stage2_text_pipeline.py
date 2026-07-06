@@ -87,6 +87,40 @@ def test_revision_candidate_flows_validator_refiner_validator_then_selector(tmp_
     assert session.completion_status == "completed_enough"
 
 
+def test_overlength_post_check_flows_refiner_then_accepted(tmp_path):
+    registry = PromptRegistry.load(PROMPTS_ROOT)
+    composer = PromptComposer(registry)
+    session = Stage1Runner(
+        storage=JSONStorage(str(tmp_path)),
+        prompts_root=PROMPTS_ROOT,
+        registry=registry,
+        composer=composer,
+    ).start(SUPPORTED_REQUEST, current_config={"count": 1}).session
+    session.normalized_request.target_age = "3"
+    executor = LengthOverlengthExecutor()
+
+    session = candidate_text_generator(to_graph_state(session), registry, composer, executor, candidate_count=1)["session"]
+    session = topic_deduplicator(to_graph_state(session), registry, composer, executor)["session"]
+    session = scorer(to_graph_state(session), registry, composer, executor)["session"]
+    session = ranker(to_graph_state(session))["session"]
+
+    session = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
+    assert session.validation_results[-1].status == "needs_revision"
+    assert any(issue.type == "text_overlength" for issue in session.validation_results[-1].issues)
+
+    session = candidate_refiner(to_graph_state(session), registry, composer, executor)["session"]
+    session = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
+    assert session.validation_results[-1].status == "accepted"
+    assert session.validated_candidate_versions[-1].version_id == "c01_v2"
+    assert session.validated_candidate_versions[-1].source == "refinement"
+
+    session = approved_text_selector(to_graph_state(session))["session"]
+    assert len(session.approved_texts) == 1
+    from src.core.stage2_length_post_check import count_story_sentences
+
+    assert count_story_sentences(session.approved_texts[0].text) <= 4
+
+
 def test_shortage_path_completes_with_explicit_shortage_without_interrupt(tmp_path):
     registry = PromptRegistry.load(PROMPTS_ROOT)
     composer = PromptComposer(registry)
@@ -211,6 +245,31 @@ class FakePipelineExecutor:
             "text": COMPLIANT_STORY_TEXT,
             "questions": candidate.get("questions", []),
             "changes_summary": "Упростили фразы.",
+        }
+
+
+class LengthOverlengthExecutor(FakePipelineExecutor):
+    def generate_candidates(self, runtime_context: dict[str, Any], count: int) -> list[dict[str, Any]]:
+        overlong = ". ".join(f"Предложение {index}." for index in range(1, 9))
+        return [
+            {
+                "candidate_id": "c01",
+                "theme": "Лиса ждёт зелёный",
+                "text": overlong,
+                "questions": ["Что сделала лиса?"],
+                "utility_points": ["остановиться", "посмотреть по сторонам"],
+                "used_subjects": ["fox"],
+                "expected_visual_idea": "Лиса рядом с переходом",
+            }
+        ]
+
+    def refine_candidate(self, runtime_context: dict[str, Any]) -> dict[str, Any]:
+        candidate = runtime_context["candidate_text"]
+        return {
+            "theme": candidate["theme"],
+            "text": COMPLIANT_STORY_TEXT,
+            "questions": candidate.get("questions", []),
+            "changes_summary": "Сократили текст до допустимой длины для age 3.",
         }
 
 

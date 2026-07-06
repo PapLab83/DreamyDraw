@@ -26,11 +26,14 @@ Additional TRUTH enforcement (same MVP):
 | TRUTH task strings | Generator / scorer / validator / refiner prompts include TRUTH-specific instructions when `truth_mode = TRUTH`. |
 | `character_consistency` | Auto-`pass` when no `character_profile` and all subjects have `is_character = false`. |
 | Scorer normalization | Missing hard gate in raw score → `unknown`, not optimistic `pass`. |
-| Deterministic post-check | After LLM validator returns `accepted`, `apply_truth_post_check()` runs for TRUTH only. Categories 1–2: fairy opening + direct animal speech as fact → downgrade to `needs_revision` with `truth_fit` issue; refiner loop fixes before durable accept. |
+| Deterministic post-check (TRUTH) | After LLM validator returns `accepted`, `apply_truth_post_check()` runs for TRUTH only. Categories 1–2: fairy opening + direct animal speech as fact → downgrade to `needs_revision` with `truth_fit` issue; refiner loop fixes before durable accept. |
+| Deterministic post-check (length) | After LLM validator returns `accepted`, `apply_length_post_check()` runs for all story modes. Counts sentences in active `text` against `AGE_STORY_LENGTH_POLICIES` for `target_age` (age 3: 3–4; age 5: 3–5). Over/under → `needs_revision` with `text_overlength` / `text_underlength`; refiner shortens or extends before durable accept. Runs **before** TRUTH post-check. |
 
-Code: `src/core/nodes/stage2.py`, `src/core/stage2_llm_executor.py`, `src/core/stage2_gate_policy.py`, `src/core/stage2_truth_post_check.py`.
+Code: `src/core/nodes/stage2.py`, `src/core/stage2_llm_executor.py`, `src/core/stage2_gate_policy.py`, `src/core/stage2_truth_post_check.py`, `src/core/stage2_length_policy.py`, `src/core/stage2_length_post_check.py`.
 
 Manual TRUTH checklist for real LLM smoke: `docs/02_ENGINEERING/implementation/STAGE_1_2_MVP_RUNBOOK.md` § TRUTH manual checklist.
+
+Manual length checklist (L1–L2) for real LLM smoke: same runbook § Length manual checklist.
 
 ### Stage 2 nodes
 
