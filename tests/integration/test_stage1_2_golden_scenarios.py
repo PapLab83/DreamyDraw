@@ -70,7 +70,7 @@ def test_gentle_myth_about_sun_and_wind_preserves_freeform_nature_subject(tmp_pa
     assert {"солнце", "ветер"} <= unresolved_labels(session)
     text = approved_text(session).casefold()
     assert "образ" in text
-    assert "не как научное объяснение" in text
+    assert "не объясняют науку" in text
 
 
 def test_teaching_truth_story_about_hand_washing_keeps_hygiene_points(tmp_path):

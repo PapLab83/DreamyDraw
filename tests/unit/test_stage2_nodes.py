@@ -34,6 +34,7 @@ from src.models.schemas import (
     ValidatedCandidateVersion,
     ValidationResult,
 )
+from tests.helpers.compliant_story_text import COMPLIANT_STORY_TEXT, compliant_story_text
 
 PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
 REQUIRED_GATES = {
@@ -138,7 +139,9 @@ def test_deduplicator_executor_receives_candidate_payloads_for_semantic_decision
         "Лиса ждёт безопасный сигнал",
     ]
     assert runtime_context["candidate_texts"][0]["candidate_id"] == "c01"
-    assert runtime_context["candidate_texts"][1]["text"] == "draft text c02"
+    assert runtime_context["candidate_texts"][1]["text"] == compliant_story_text(
+        label="Лиса ждёт безопасный сигнал"
+    )
 
 
 def test_scorer_writes_required_hard_gates_and_numeric_components():
@@ -213,7 +216,9 @@ def test_validator_reads_active_draft_version_and_writes_validated_version():
     result = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
 
     assert executor.calls["validate_candidate"][0]["runtime_context"]["candidate_id"] == "c01"
-    assert executor.calls["validate_candidate"][0]["candidate_text"]["text"] == "draft text c01"
+    assert executor.calls["validate_candidate"][0]["candidate_text"]["text"] == compliant_story_text(
+        label="Theme 1"
+    )
     assert result.validation_results[-1].status == "accepted"
     assert result.validated_candidate_versions[-1].candidate_id == "c01"
     assert result.validated_candidate_versions[-1].version_id == "c01_v1"
@@ -232,7 +237,7 @@ def test_validator_reads_active_refined_version_from_loop_state():
             version_id="c01_v2",
             source_version_id="c01_v1",
             theme="Refined theme",
-            text="refined text c01",
+            text=compliant_story_text(label="Refined theme"),
             questions=["Почему лиса ждала?"],
         )
     ]
@@ -244,7 +249,9 @@ def test_validator_reads_active_refined_version_from_loop_state():
 
     result = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
 
-    assert executor.calls["validate_candidate"][0]["candidate_text"]["text"] == "refined text c01"
+    assert executor.calls["validate_candidate"][0]["candidate_text"]["text"] == compliant_story_text(
+        label="Refined theme"
+    )
     assert result.validated_candidate_versions[-1].version_id == "c01_v2"
     assert result.validated_candidate_versions[-1].source == "refinement"
 
@@ -252,7 +259,11 @@ def test_validator_reads_active_refined_version_from_loop_state():
 def test_truth_post_check_downgrades_accepted_fairy_opening_in_truth_mode():
     registry, composer = _registry_composer()
     session = _truth_session_with_ranked_candidates(
-        candidate_text="Жила-была лиса и искала укрытие в снегу.",
+        candidate_text=(
+            "Жила-была лиса в лесу. "
+            "Она искала укрытие в снегу. "
+            "Ветер был тихим."
+        ),
     )
     executor = FakeStage2TextExecutor()
 
@@ -263,10 +274,30 @@ def test_truth_post_check_downgrades_accepted_fairy_opening_in_truth_mode():
     assert result.validated_candidate_versions == []
 
 
+def test_length_post_check_downgrades_accepted_overlength_for_age_3():
+    registry, composer = _registry_composer()
+    session = _session_with_ranked_candidates()
+    session.normalized_request.target_age = "3"
+    session.candidate_texts[0].text = ". ".join(
+        f"Предложение {index}." for index in range(1, 9)
+    )
+    executor = FakeStage2TextExecutor()
+
+    result = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
+
+    assert result.validation_results[-1].status == "needs_revision"
+    assert any(issue.type == "text_overlength" for issue in result.validation_results[-1].issues)
+    assert result.validated_candidate_versions == []
+
+
 def test_truth_post_check_allows_fairy_opening_in_fairy_tale_mode():
     registry, composer = _registry_composer()
     session = _session_with_ranked_candidates()
-    session.candidate_texts[0].text = "Жила-была лиса в сказочном лесу."
+    session.candidate_texts[0].text = (
+        "Жила-была лиса в сказочном лесу. "
+        "Она шла по тропинке. "
+        "Ветер был добрым."
+    )
     executor = FakeStage2TextExecutor()
 
     result = candidate_validator(to_graph_state(session), registry, composer, executor)["session"]
@@ -504,7 +535,7 @@ class FakeStage2TextExecutor:
         return [
             {
                 "theme": f"Тема {index}",
-                "text": f"draft text c{index:02d}",
+                "text": compliant_story_text(label=f"Тема {index}"),
                 "questions": [f"Вопрос {index}?"],
                 "utility_points": ["ждать зелёный"],
                 "used_subjects": ["fox"],
@@ -550,7 +581,7 @@ class FakeStage2TextExecutor:
         candidate = runtime_context["candidate_text"]
         return {
             "theme": candidate["theme"],
-            "text": f"{candidate['text']} refined",
+            "text": COMPLIANT_STORY_TEXT,
             "questions": candidate.get("questions", []),
             "changes_summary": "shortened",
         }
@@ -627,7 +658,7 @@ def _candidate(candidate_id: str, theme: str) -> CandidateText:
     return CandidateText(
         candidate_id=candidate_id,
         theme=theme,
-        text=f"draft text {candidate_id}",
+        text=compliant_story_text(label=theme),
         questions=["Что запомнила лиса?"],
         used_subjects=["fox"],
         utility_points=["ждать зелёный"],

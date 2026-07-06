@@ -127,7 +127,7 @@ Owner: <имя>
 | §3.1 Doc mini-pass | `PRODUCT_VISION.md` §2 defaults; `CONFIGURATION_CONSTANTS.md` при необходимости |
 | §3.2 Stage 1 | `contracts/NORMALIZED_STATE_CONTRACT.md`, `PROMPT_LOOKUP_CONTRACT.md`, `src/core/nodes/stage1.py`, `src/core/prompts/lookup.py`, `prompts/.../CHUKOVSKY_STYLE.md` |
 | §3.3 Stage 2 TRUTH | `src/core/stage2_llm_executor.py`, `src/core/nodes/stage2.py`, `prompts/truth_modes/TRUTH/BASE.md`, entity layers (FOX, HEDGEHOG, …) |
-| §3.4 Length | `orchestration/02_STAGE_2_TEXT_PIPELINE.md` § validator/refiner; age layers в `prompts/` |
+| §3.4 Length | `IMPLEMENTATION_PLAN_3_4_STAGE2_LENGTH_ENFORCEMENT.md`, `WAVE_12_STAGE2_LENGTH_LIMITS_TASK.md`, age layers в `prompts/ages/` |
 | §3.5 Manual tests | `STAGE_1_2_MVP_RUNBOOK.md`, `STAGE_1_2_MVP_ACCEPTANCE_CHECKLIST.md` |
 | §3.6 Doc alignment | `ARCHITECTURE.md`, `ROADMAP.md`, `MODULES.md` — сверка с фактом |
 | §3.7 Legacy cleanup | `main.py`, `src/core/orchestrator.py`, `implementation/WAVE_0_LEGACY_POLICY.md` |
@@ -406,49 +406,48 @@ See [`IMPLEMENTATION_PLAN_3_3_STAGE2_TRUTH_ENFORCEMENT.md`](IMPLEMENTATION_PLAN_
 
 | Field | Value |
 |-------|-------|
-| **Status** | `draft` |
-| **Owner** | Dev D (or same as §3.3) |
+| **Status** | `done (code + CI)` |
+| **Owner** | Dev C |
 | **Estimate** | 1–2 days |
-| **Depends on** | Желательно после §3.3; before §3.5 |
+| **Depends on** | §3.3 `done`; before §3.5 |
 | **Blocks** | §3.5 (length observations in manual report) |
+| **Spec** | `implementation/IMPLEMENTATION_PLAN_3_4_STAGE2_LENGTH_ENFORCEMENT.md` |
+| **Delegation** | `implementation/WAVE_12_STAGE2_LENGTH_LIMITS_TASK.md` |
 
 #### Problem
 
-Approved texts могут быть **несколько абзацев**; продукт ожидает **короткий текст** (ориентир: 3–5 предложений, для младшего возраста — короче). Hard gate / refiner policy отсутствует.
+Approved texts могут быть **несколько абзацев**; продукт ожидает **короткий текст**. Hard gate / refiner policy отсутствует. Age layers задают сложность качественно, без числового enforcement.
 
-Lead ориентир (draft, уточнить в Implementation Plan): **начать просто** — одно правило «как для 3 лет» для всех возрастов MVP.
+#### Approved decisions (lead 2026-07-06)
 
-#### Possible approaches (не финально)
+| # | Решение |
+|---|---------|
+| 1 | Единица: **предложения** в `text`; `questions` вне лимита |
+| 2 | **Age 3:** 3–4 предложения; **Age 5:** 3–5; min 3 жёстко |
+| 3 | Сложность фраз: расширить `AGE_3` / `AGE_5` (правила + примеры), не новые layer-файлы |
+| 4 | Числа из **`AGE_STORY_LENGTH_POLICIES`** (расширяемый dict по `target_age`) |
+| 5 | Подход **C:** age prompts + validator LLM + deterministic post-check + refiner |
+| 6 | Issue types: `text_overlength`, `text_underlength`, `sentence_too_complex` |
+| 7 | Post-check по образцу §3.3 TRUTH (`apply_length_post_check`) |
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **A. Deterministic sentence count** | Fast, testable | Грубый (аббревиатуры, диалог) |
-| **B. LLM validator only** | Semantic | Unreliable (как TRUTH) |
-| **C. A + refiner + generator hint** | Best MVP balance | Slightly more code |
+#### Acceptance criteria
 
-**Draft rule:** max **4–5 предложений** в основном тексте истории; превышение → `needs_revision` → refiner «сократи, сохрани смысл».
-
-#### Draft acceptance criteria
-
-- [ ] Generator prompt includes length instruction
-- [ ] Validator or deterministic check flags overlength
-- [ ] Refiner can shorten without changing theme/subject
-- [ ] Unit test: 8-sentence mock → revision path
-- [ ] Documented in runbook / STAGE_CONTRACTS (mini note)
+- [x] Policy dict + composer injection `length_policy`
+- [x] Age layer bodies updated (complexity + compact examples)
+- [x] Deterministic post-check flags over/under length by age
+- [x] Refiner shortens without changing theme/subject
+- [x] Unit test: 8-sentence mock → revision; age 3 + 5 sentences → fail
+- [x] Documented in runbook (§3.5 prep) + `CONFIGURATION_CONSTANTS.md`
 
 #### Out of scope
 
-- Per-age table (3 vs 5 different limits) — follow-up after MVP
-- Image text overlay length
+- Character/byte limits; image text overlay length
+- Age ladder 3.5 / 4 / 4.5 (добавление = новая запись в dict)
+- Prompt budget / grounding compression (отдельная задача)
 
-#### Open questions
+#### Gate before code
 
-- Exact threshold: 4 or 5 sentences?
-- Count questions separately or include in limit?
-
-#### Deliverable before code
-
-**Implementation Plan** with chosen approach (A/C), edge cases, sample refiner prompt.
+Lead ok на **Implementation Plan §3.4** (Phase 0). Код — Phase 1, PR-1..6 в плане.
 
 ---
 
@@ -656,7 +655,7 @@ Status: draft | under_review | approved
 | §3.1 Doc mini-pass | Dev A | `done` |
 | §3.2 Stage 1 interpretation | Dev B | `done` |
 | §3.3 Stage 2 TRUTH | Dev C | `done (code + CI)` |
-| §3.4 Length limits | TBD | `draft` |
+| §3.4 Length limits | Dev C | `done (code + CI)` |
 | §3.5 Manual tests | TBD | `draft` |
 | §3.6 Doc alignment | TBD | `draft` |
 | §3.7 Legacy cleanup | TBD | `draft` |

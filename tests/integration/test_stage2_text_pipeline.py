@@ -19,6 +19,7 @@ from src.core.prompts.registry import PromptRegistry
 from src.core.stage1_runner import Stage1Runner
 from src.models.schemas import SessionState
 from src.storage.json_storage import JSONStorage
+from tests.helpers.compliant_story_text import COMPLIANT_STORY_TEXT, compliant_story_text
 
 PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
 SUPPORTED_REQUEST = "Сделай сказку про лису для 5 лет и научи безопасности на дороге"
@@ -152,9 +153,9 @@ def _run_until_selector_ready(
 class FakePipelineExecutor:
     def generate_candidates(self, runtime_context: dict[str, Any], count: int) -> list[dict[str, Any]]:
         base = [
-            ("c01", "Лиса ждёт зелёный", "Первый спокойный текст."),
-            ("c02", "Лиса смотрит по сторонам", "Второй текст требует правки."),
-            ("c03", "Лиса ждёт зелёный", "Дубликат первого текста."),
+            ("c01", "Лиса ждёт зелёный", COMPLIANT_STORY_TEXT),
+            ("c02", "Лиса смотрит по сторонам", compliant_story_text(label="Второй текст требует правки")),
+            ("c03", "Лиса ждёт зелёный", compliant_story_text(label="Дубликат первого текста")),
         ]
         return [
             {
@@ -207,7 +208,7 @@ class FakePipelineExecutor:
         candidate = runtime_context["candidate_text"]
         return {
             "theme": candidate["theme"],
-            "text": "Исправленный короткий текст про лису.",
+            "text": COMPLIANT_STORY_TEXT,
             "questions": candidate.get("questions", []),
             "changes_summary": "Упростили фразы.",
         }

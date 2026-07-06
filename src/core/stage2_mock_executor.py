@@ -12,13 +12,25 @@ REQUIRED_GATES = {
     "character_consistency",
 }
 
+_MOCK_COMPLIANT_STORY = (
+    "Лиса остановилась у перехода. "
+    "Она дождалась зелёного света. "
+    "Потом пошла дальше."
+)
+
 
 class MockStage2TextExecutor:
     def generate_candidates(self, runtime_context: dict[str, Any], count: int) -> list[dict[str, Any]]:
         base = [
-            ("Лиса ждёт зелёный", "Лиса остановилась у перехода и дождалась зелёного света."),
-            ("Лиса смотрит по сторонам", "Перед дорогой лиса посмотрела налево и направо."),
-            ("Лиса ждёт зелёный", "Лиса снова вспоминает про зелёный свет."),
+            ("Лиса ждёт зелёный", _MOCK_COMPLIANT_STORY),
+            (
+                "Лиса смотрит по сторонам",
+                "Перед дорогой лиса посмотрела налево. Она посмотрела направо. Потом ждала взрослого.",
+            ),
+            (
+                "Лиса ждёт зелёный",
+                "Лиса вспомнила про зелёный свет. Она остановилась у края. Всё было спокойно.",
+            ),
         ]
         return [
             {
@@ -52,7 +64,7 @@ class MockStage2TextExecutor:
         candidate = runtime_context["candidate_text"]
         return {
             "theme": candidate["theme"],
-            "text": candidate["text"],
+            "text": _MOCK_COMPLIANT_STORY,
             "questions": candidate.get("questions", []),
-            "changes_summary": "Без изменений.",
+            "changes_summary": "Сократили текст до допустимой длины.",
         }

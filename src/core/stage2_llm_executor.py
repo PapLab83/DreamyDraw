@@ -12,6 +12,7 @@ from src.core.stage2_gate_policy import (
     requires_character_consistency,
     scorer_task,
 )
+from src.core.stage2_length_policy import append_length_task
 from src.core.utils.json_parser import LLMJsonParseError, parse_llm_json
 from src.providers.base import BaseLLMProvider
 
@@ -25,7 +26,11 @@ REQUIRED_HARD_GATES = (
     "character_consistency",
 )
 VALID_GATE_VALUES = {"pass", "fail", "unknown"}
-VALID_ISSUE_TYPES = set(REQUIRED_HARD_GATES)
+VALID_ISSUE_TYPES = set(REQUIRED_HARD_GATES) | {
+    "text_overlength",
+    "text_underlength",
+    "sentence_too_complex",
+}
 VALID_ISSUE_SEVERITIES = {"minor", "major", "critical"}
 VALID_VALIDATION_STATUSES = {"accepted", "needs_revision", "rejected"}
 
@@ -70,8 +75,12 @@ class LLMStage2TextExecutor:
                 ]
             },
             task=append_truth_task(
-                f"Generate up to {count} distinct text candidates. "
-                "Return fewer if you cannot satisfy the contract safely.",
+                append_length_task(
+                    f"Generate up to {count} distinct text candidates. "
+                    "Return fewer if you cannot satisfy the contract safely.",
+                    runtime_context,
+                    stage="generate_candidates",
+                ),
                 runtime_context.get("normalized_request_summary"),
                 stage="generate_candidates",
             ),
@@ -206,10 +215,14 @@ class LLMStage2TextExecutor:
                     }
                 ]
             },
-            task=scorer_task(
-                "Score each candidate. Use only pass, fail, or unknown for every hard gate.",
-                runtime_context.get("normalized_request_summary"),
-                allowed_ids=allowed_ids,
+            task=append_length_task(
+                scorer_task(
+                    "Score each candidate. Use only pass, fail, or unknown for every hard gate.",
+                    runtime_context.get("normalized_request_summary"),
+                    allowed_ids=allowed_ids,
+                ),
+                runtime_context,
+                stage="score_candidates",
             ),
         )
         parsed = self._call_json(prompt, "stage2.score_candidates", default=None)
@@ -266,7 +279,7 @@ class LLMStage2TextExecutor:
                 "summary": "string",
                 "issues": [
                     {
-                        "type": "safety|truth_fit|age_fit|utility_goal|subject_continuity|hard_details|character_consistency",
+                        "type": "safety|truth_fit|age_fit|utility_goal|subject_continuity|hard_details|character_consistency|text_overlength|text_underlength|sentence_too_complex",
                         "severity": "minor|major|critical",
                         "description": "string",
                     }
@@ -274,7 +287,11 @@ class LLMStage2TextExecutor:
                 "required_fixes": ["string"],
             },
             task=append_truth_task(
-                _validation_task(runtime_context),
+                append_length_task(
+                    _validation_task(runtime_context),
+                    runtime_context,
+                    stage="validate_candidate",
+                ),
                 runtime_context.get("normalized_request_summary"),
                 stage="validate_candidate",
             ),
@@ -322,9 +339,13 @@ class LLMStage2TextExecutor:
                 "changes_summary": "string",
             },
             task=append_truth_task(
-                (
-                    "Revise only the current candidate text according to validator issues. "
-                    "Preserve protected subject, truth mode, hard details, and character continuity."
+                append_length_task(
+                    (
+                        "Revise only the current candidate text according to validator issues. "
+                        "Preserve protected subject, truth mode, hard details, and character continuity."
+                    ),
+                    runtime_context,
+                    stage="refine_candidate",
                 ),
                 runtime_context.get("normalized_request_summary"),
                 stage="refine_candidate",
@@ -441,6 +462,7 @@ class LLMStage2TextExecutor:
             "model_name": self.model_name,
             "task": task,
             "normalized_request_summary": runtime_context.get("normalized_request_summary", {}),
+            "length_policy": runtime_context.get("length_policy", {}),
             "stage_inputs": _stage_inputs(runtime_context),
             "prompt_context": {
                 "ordered_layer_ids": [ref.get("id") for ref in runtime_context.get("ordered_layer_refs", []) if isinstance(ref, dict)],

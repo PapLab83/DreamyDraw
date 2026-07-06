@@ -3,6 +3,8 @@ MAX_COUNT = 10
 
 TARGET_AGE_MIN = 3
 TARGET_AGE_MAX = 5
+# Legacy global story length bounds; per-age enforcement uses AGE_STORY_LENGTH_POLICIES
+# in src/core/stage2_length_policy.py (age 3: 3-4, age 5: 3-5).
 STORY_SENTENCES_MIN = 3
 STORY_SENTENCES_MAX = 5
 MIN_QUESTIONS = 2

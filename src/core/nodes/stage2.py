@@ -11,6 +11,7 @@ from src.core.graph.state import GraphState
 from src.core.prompts.composer import PromptComposer
 from src.core.prompts.registry import PromptRegistry
 from src.core.stage2_gate_policy import apply_character_consistency_gate_policy
+from src.core.stage2_length_post_check import apply_length_post_check
 from src.core.stage2_truth_post_check import apply_truth_post_check
 from src.models.schemas import (
     ApprovedText,
@@ -225,6 +226,11 @@ def candidate_validator(
         issues=[ValidationIssue(**issue) for issue in raw_result.get("issues", [])],
         required_fixes=list(raw_result.get("required_fixes", [])),
         summary=raw_result.get("summary"),
+    )
+    validation = apply_length_post_check(
+        validation,
+        target_age=session.normalized_request.target_age,
+        text=str(getattr(active, "text", "")),
     )
     validation = apply_truth_post_check(
         validation,

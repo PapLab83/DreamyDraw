@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from src.core.prompts.models import StagePromptContextBuild
 from src.core.prompts.registry import PromptRegistry
+from src.core.stage2_length_policy import length_policy_payload
 from src.models.schemas import (
     ExecutionPromptContext,
     NormalizedRequest,
@@ -200,6 +201,7 @@ class PromptComposer:
             "normalized_request_summary": self._normalized_request_summary(
                 normalized_request
             ),
+            "length_policy": length_policy_payload(normalized_request.target_age),
             "hard_details": list(normalized_request.hard_details),
             "soft_preferences": list(normalized_request.soft_preferences),
             "unresolved_details": unresolved_details,

@@ -119,6 +119,12 @@ Refiner не меняет `normalized_request`, `prompt_context`, `ranked_candid
 
 Refiner не создаёт `approved_texts`, не меняет `shortage` и не принимает HITL fallback decisions.
 
+При issues `text_overlength`, `text_underlength` или `sentence_too_complex`:
+
+- сократи или дополни `text` до диапазона из `length_policy`;
+- упрости слишком длинные или сложные предложения по age layer body;
+- сохрани `theme`, subjects, `character_profile` и hard details.
+
 # Trace / Debug Expectations
 
 `changes_summary` должен объяснить, какие validator issues исправлены и какие immutable fields preserved.

@@ -14,6 +14,17 @@ from src.storage.json_storage import JSONStorage
 SCRIPT = "scripts/run_stage1_2_mvp.py"
 REQUEST = "Сделай 2 сказки про лису для 5 лет."
 
+_COMPLIANT_FOX_STORY_1 = (
+    "Лиса увидела звезду. "
+    "Она загадала доброе желание. "
+    "Потом пошла домой."
+)
+_COMPLIANT_FOX_STORY_2 = (
+    "Лиса слушала ручей. "
+    "Она помогла другу перейти по камням. "
+    "Все обрадовались."
+)
+
 
 class ScriptedLLMProvider(BaseLLMProvider):
     def __init__(self) -> None:
@@ -26,8 +37,8 @@ class ScriptedLLMProvider(BaseLLMProvider):
             return json.dumps(
                 {
                     "candidates": [
-                        {"theme": "Лиса и звезда", "text": "Лиса увидела звезду и загадала доброе желание.", "questions": ["Что увидела лиса?"]},
-                        {"theme": "Лиса и ручей", "text": "Лиса слушала ручей и помогла другу перейти по камням.", "questions": ["Кому помогла лиса?"]},
+                        {"theme": "Лиса и звезда", "text": _COMPLIANT_FOX_STORY_1, "questions": ["Что увидела лиса?"]},
+                        {"theme": "Лиса и ручей", "text": _COMPLIANT_FOX_STORY_2, "questions": ["Кому помогла лиса?"]},
                     ]
                 }
             )
@@ -104,7 +115,7 @@ def test_stage1_2_graph_writes_llm_debug_artifacts_for_bad_scorer_response(tmp_p
         def generate_text(self, prompt: str) -> str:
             self.prompts.append(prompt)
             if len(self.prompts) == 1:
-                return json.dumps({"candidates": [{"theme": "Лиса", "text": "Лиса гуляла по лесу."}]})
+                return json.dumps({"candidates": [{"theme": "Лиса", "text": _COMPLIANT_FOX_STORY_1}]})
             if len(self.prompts) == 2:
                 return json.dumps({"decisions": []})
             return json.dumps({"scores": [{"candidate_id": "wrong-id", "hard_gates": {}, "score_components": {}, "total_score": 0.5}]})
@@ -159,5 +170,5 @@ def _runtime_context() -> dict:
         "unresolved_details": [],
         "stage_instructions": [],
         "context_blocks": [],
-        "candidate_texts": [{"candidate_id": "c01", "theme": "Лиса", "text": "Текст"}],
+        "length_policy": {"target_age": "5", "sentences_min": 3, "sentences_max": 5, "complexity_profile": "moderate"},
     }

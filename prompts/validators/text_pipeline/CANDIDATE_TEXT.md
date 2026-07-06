@@ -116,6 +116,12 @@ rejected
 
 Если `utility_mode = TEACHING`, проверяй, что text and questions поддерживают utility goal и не учат небезопасному, неверному или противоположному поведению.
 
+Проверяй длину и простоту `text` по `length_policy` в runtime context и по активному age layer body в `layer_grounding`:
+
+- слишком мало или слишком много предложений → `text_underlength` или `text_overlength`;
+- предложения слишком сложные для возраста → `sentence_too_complex` или `age_fit`;
+- `questions` не входят в лимит предложений истории.
+
 `accepted_count` является metric/debug counter only. Это не достаточное условие остановки validation loop, потому что selector обязан исключать duplicate themes and critical gate failures.
 
 `selector_eligible_unique_accepted_count` является stop condition для достаточного количества accepted versions.

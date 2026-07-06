@@ -10,6 +10,7 @@ from src.core.prompts.composer import PromptComposer
 from src.core.prompts.registry import PromptRegistry
 from src.models.schemas import SessionRequest, SessionState
 from src.storage.json_storage import JSONStorage
+from tests.helpers.compliant_story_text import COMPLIANT_STORY_TEXT, compliant_story_text
 
 PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
 SUPPORTED_REQUEST = "Сделай сказку про лису для 5 лет и научи безопасности на дороге"
@@ -150,9 +151,9 @@ class FakePipelineExecutor:
 
     def generate_candidates(self, runtime_context: dict[str, Any], count: int) -> list[dict[str, Any]]:
         base = [
-            ("Лиса ждёт зелёный", "Первый спокойный текст."),
-            ("Лиса смотрит по сторонам", "Второй текст требует правки."),
-            ("Лиса ждёт зелёный", "Дубликат первого текста."),
+            ("Лиса ждёт зелёный", COMPLIANT_STORY_TEXT),
+            ("Лиса смотрит по сторонам", compliant_story_text(label="Второй текст требует правки")),
+            ("Лиса ждёт зелёный", compliant_story_text(label="Дубликат первого текста")),
         ]
         return [
             {
@@ -195,7 +196,7 @@ class FakePipelineExecutor:
         candidate = runtime_context["candidate_text"]
         return {
             "theme": candidate["theme"],
-            "text": "Исправленный короткий текст про лису.",
+            "text": COMPLIANT_STORY_TEXT,
             "questions": candidate.get("questions", []),
             "changes_summary": "Упростили фразы.",
         }

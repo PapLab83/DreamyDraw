@@ -45,6 +45,12 @@ def test_generator_context_uses_expected_layer_order_and_static_entry():
     ]
     assert result.runtime_context["hard_details"] == ["Не переходить дорогу одному."]
     assert result.runtime_context["soft_preferences"] == ["Тёплый спокойный финал."]
+    assert result.runtime_context["length_policy"] == {
+        "target_age": "5",
+        "sentences_min": 3,
+        "sentences_max": 5,
+        "complexity_profile": "moderate",
+    }
     assert result.runtime_context["context_blocks"].index("hard_details") < (
         result.runtime_context["context_blocks"].index("soft_preferences")
     )

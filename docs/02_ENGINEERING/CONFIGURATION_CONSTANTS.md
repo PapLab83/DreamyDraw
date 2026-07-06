@@ -58,7 +58,8 @@
 |---|---|---|---|
 | `10 идей` | `text/planners/SERIES_PLANNER_*.md` | `IDEA_POOL_SIZE` | Размер пула идей |
 | `3-5` / `3–5 лет` | почти все текстовые промпты | `TARGET_AGE_MIN`, `TARGET_AGE_MAX` | Возрастная аудитория |
-| `3-5 предложений` | `TEXT_BASE_PROMPT.md` | `STORY_SENTENCES_MIN`, `STORY_SENTENCES_MAX` | Длина истории |
+| `3-5 предложений` | `TEXT_BASE_PROMPT.md` | `STORY_SENTENCES_MIN`, `STORY_SENTENCES_MAX` (legacy global) | Длина истории |
+| per-age 3–4 / 3–5 | `src/core/stage2_length_policy.py` | `AGE_STORY_LENGTH_POLICIES` | Enforcement по `target_age` (§3.4) |
 | `2-3 вопроса` | `TEXT_BASE_PROMPT.md`, режимные промпты | `MIN_QUESTIONS`, `MAX_QUESTIONS` | Количество вопросов |
 | `2-3 персонажа`, `3-4 персонажа` | валидаторы и режимные промпты | `MAX_MAIN_CHARACTERS`, `MAX_SCENE_CHARACTERS` | Ограничение сложности сцены |
 | `15-30 секунд` | `TEXT_BASE_PROMPT.md` | `READING_TIME_MIN_SECONDS`, `READING_TIME_MAX_SECONDS` | Целевая длительность чтения |
