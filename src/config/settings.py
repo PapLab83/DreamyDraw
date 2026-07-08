@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from src.config import constants
+
 
 class Settings(BaseSettings):
     # Провайдеры (mock или openai/dalle)
@@ -11,6 +13,12 @@ class Settings(BaseSettings):
     GPTTUNNEL_BASE_URL: str = "https://gptunnel.ru/v1"
     
     LLM_MODEL: str = "gpt-4o" # gpt-4o, gpt-4o-mini
+    LLM_TEMPERATURE_DEFAULT: float = constants.LLM_TEMPERATURE_DEFAULT
+    LLM_TEMPERATURE_GENERATE_CANDIDATES: float = constants.LLM_TEMPERATURE_GENERATE_CANDIDATES
+    LLM_TEMPERATURE_DEDUPLICATE_TOPICS: float = constants.LLM_TEMPERATURE_DEDUPLICATE_TOPICS
+    LLM_TEMPERATURE_SCORE_CANDIDATES: float = constants.LLM_TEMPERATURE_SCORE_CANDIDATES
+    LLM_TEMPERATURE_VALIDATE_CANDIDATE: float = constants.LLM_TEMPERATURE_VALIDATE_CANDIDATE
+    LLM_TEMPERATURE_REFINE_CANDIDATE: float = constants.LLM_TEMPERATURE_REFINE_CANDIDATE
     IMAGE_MODEL: str = "nano-banana-2" # dall-e-3, nano-banana, nano-banana-2
     
     # Дефолтные значения

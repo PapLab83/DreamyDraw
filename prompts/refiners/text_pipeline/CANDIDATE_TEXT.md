@@ -68,7 +68,7 @@ attempts_exhausted
 
 # Обязательные правила
 
-Maximum refinement attempts per candidate in MVP: `2`.
+Maximum refinement attempts per candidate in MVP: `1`.
 
 Исправляй только проблемы, найденные validator, и явные локальные дефекты, которые мешают этим fixes.
 

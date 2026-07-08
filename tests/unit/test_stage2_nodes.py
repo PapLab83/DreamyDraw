@@ -334,22 +334,21 @@ def test_refiner_writes_refined_versions_only_and_updates_active_cursor():
     assert result.validated_candidate_versions == []
 
 
-def test_refiner_refuses_third_refinement_attempt_without_executor_call():
+def test_refiner_refuses_second_refinement_attempt_without_executor_call():
     registry, composer = _registry_composer()
     session = _session_with_ranked_candidates()
     session.validation_loop_state.active_candidate_id = "c01"
-    session.validation_loop_state.active_version_id = "c01_v3"
+    session.validation_loop_state.active_version_id = "c01_v2"
     session.validation_loop_state.active_version_origin = "refined"
     session.validation_loop_state.active_text_source = "refined_candidate_versions"
-    session.validation_loop_state.max_refinement_attempts_per_candidate = 2
+    session.validation_loop_state.max_refinement_attempts_per_candidate = 1
     session.refined_candidate_versions = [
         RefinedCandidateVersion(candidate_id="c01", version_id="c01_v2", source_version_id="c01_v1", text="v2"),
-        RefinedCandidateVersion(candidate_id="c01", version_id="c01_v3", source_version_id="c01_v2", text="v3"),
     ]
     session.validation_results = [
         ValidationResult(
             candidate_id="c01",
-            version_id="c01_v3",
+            version_id="c01_v2",
             status="needs_revision",
             required_fixes=["Ещё правка."],
         )
@@ -359,7 +358,7 @@ def test_refiner_refuses_third_refinement_attempt_without_executor_call():
     with pytest.raises(ValueError, match="refinement attempt limit"):
         candidate_refiner(to_graph_state(session), registry, composer, executor)
 
-    assert len(session.refined_candidate_versions) == 2
+    assert len(session.refined_candidate_versions) == 1
     assert executor.calls["refine_candidate"] == []
 
 

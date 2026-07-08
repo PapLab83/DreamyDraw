@@ -356,7 +356,7 @@ Immutable fields:
 
 Правила:
 
-- Максимум refinement attempts per candidate в MVP: `2`.
+- Максимум refinement attempts per candidate в MVP: `1`.
 - Refiner не должен молча менять immutable fields.
 - Если исправление невозможно без изменения immutable fields, stage возвращает issue/failure и граф переходит к следующему кандидату.
 - Исправленная версия записывается в `refined_candidate_versions` как durable candidate version, ожидающая validation.

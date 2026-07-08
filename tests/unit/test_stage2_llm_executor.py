@@ -13,9 +13,11 @@ class ScriptedLLMProvider(BaseLLMProvider):
     def __init__(self, responses: list[str]) -> None:
         self.responses = list(responses)
         self.prompts: list[str] = []
+        self.temperatures: list[float | None] = []
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(self, prompt: str, *, temperature: float | None = None) -> str:
         self.prompts.append(prompt)
+        self.temperatures.append(temperature)
         if not self.responses:
             raise AssertionError("Unexpected provider call")
         return self.responses.pop(0)

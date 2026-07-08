@@ -36,7 +36,7 @@ class ScriptedLLM(BaseLLMProvider):
         self.responses = list(responses)
         self.calls = 0
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(self, prompt: str, *, temperature: float | None = None) -> str:
         if self.calls >= len(self.responses):
             raise RuntimeError(
                 f"ScriptedLLM: запрошен ответ #{self.calls + 1}, "

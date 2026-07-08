@@ -381,7 +381,7 @@ class ValidationLoopState(BaseModel):
     accepted_count: int = 0
     selector_eligible_unique_accepted_count: int = 0
     candidate_attempts: Dict[str, int] = Field(default_factory=dict)
-    max_refinement_attempts_per_candidate: int = 2
+    max_refinement_attempts_per_candidate: int = 1
 
 
 class PipelineCounters(BaseModel):

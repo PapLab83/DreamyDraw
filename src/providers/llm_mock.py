@@ -1,7 +1,9 @@
 import os
 from typing import List
+
 from src.config import constants
 from src.providers.base import BaseLLMProvider
+
 
 class LLMMockProvider(BaseLLMProvider):
     def __init__(self, mock_file: str = "assets/mocks/fox_story.txt"):
@@ -14,7 +16,7 @@ class LLMMockProvider(BaseLLMProvider):
                 return f.read()
         return "Мок-текст не найден."
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(self, prompt: str, *, temperature: float | None = None) -> str:
         # В реальности здесь будет парсинг или выбор части мока
         # Для прототипа возвращаем основную часть текста про лису
         lines = self.mock_content.split("\n\n")

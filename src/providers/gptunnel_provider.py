@@ -20,15 +20,18 @@ class GPTunnelLLMProvider(BaseLLMProvider):
         )
         self.model = settings.LLM_MODEL
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(self, prompt: str, *, temperature: float | None = None) -> str:
         langfuse = langfuse_client.get_client()
+        resolved_temperature = (
+            float(temperature) if temperature is not None else float(settings.LLM_TEMPERATURE_DEFAULT)
+        )
 
         # Если SDK выключен / не инициализирован — работаем без трейсинга
         if langfuse is None:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,
+                temperature=resolved_temperature,
             )
             return response.choices[0].message.content
 
@@ -42,13 +45,13 @@ class GPTunnelLLMProvider(BaseLLMProvider):
                 name="gptunnel.generate_text",
                 model=self.model,
                 input=input_payload,
-                metadata={"provider": "gptunnel"},
+                metadata={"provider": "gptunnel", "temperature": resolved_temperature},
         ) as gen:
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=0.7,
+                    temperature=resolved_temperature,
                 )
                 result = response.choices[0].message.content
 

@@ -31,7 +31,7 @@ class ScriptedLLMProvider(BaseLLMProvider):
         self.prompts: list[str] = []
         self.model = "initial-model"
 
-    def generate_text(self, prompt: str) -> str:
+    def generate_text(self, prompt: str, *, temperature: float | None = None) -> str:
         self.prompts.append(prompt)
         if len(self.prompts) == 1:
             return json.dumps(
@@ -112,7 +112,7 @@ def test_stage1_2_graph_reaches_approved_texts_with_scripted_llm_provider(tmp_pa
 
 def test_stage1_2_graph_writes_llm_debug_artifacts_for_bad_scorer_response(tmp_path) -> None:
     class BadScorerProvider(ScriptedLLMProvider):
-        def generate_text(self, prompt: str) -> str:
+        def generate_text(self, prompt: str, *, temperature: float | None = None) -> str:
             self.prompts.append(prompt)
             if len(self.prompts) == 1:
                 return json.dumps({"candidates": [{"theme": "Лиса", "text": _COMPLIANT_FOX_STORY_1}]})

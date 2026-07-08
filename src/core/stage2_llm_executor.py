@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.core.llm_temperature_policy import resolve_llm_temperature
 from src.core.stage2_expressiveness_policy import append_expressiveness_task
 from src.core.stage2_gate_policy import (
     append_truth_task,
@@ -92,7 +93,12 @@ class LLMStage2TextExecutor:
                 stage="generate_candidates",
             ),
         )
-        parsed = self._call_json(prompt, "stage2.generate_candidates", default=None)
+        parsed = self._call_json(
+            prompt,
+            "stage2.generate_candidates",
+            default=None,
+            stage="candidate_text_generator",
+        )
         if not isinstance(parsed, dict):
             self._write_debug_artifact(
                 "candidate_text_generator",
@@ -160,7 +166,12 @@ class LLMStage2TextExecutor:
             },
             task="Detect semantic duplicate topics only for candidate ids present in stage inputs.",
         )
-        parsed = self._call_json(prompt, "stage2.deduplicate_topics", default=None)
+        parsed = self._call_json(
+            prompt,
+            "stage2.deduplicate_topics",
+            default=None,
+            stage="topic_deduplicator",
+        )
         if not isinstance(parsed, dict) or not isinstance(parsed.get("decisions"), list):
             self._write_debug_artifact(
                 "topic_deduplicator",
@@ -236,7 +247,12 @@ class LLMStage2TextExecutor:
                 stage="score_candidates",
             ),
         )
-        parsed = self._call_json(prompt, "stage2.score_candidates", default=None)
+        parsed = self._call_json(
+            prompt,
+            "stage2.score_candidates",
+            default=None,
+            stage="scorer",
+        )
         if not isinstance(parsed, dict) or not isinstance(parsed.get("scores"), list):
             self._write_debug_artifact(
                 "scorer",
@@ -311,7 +327,12 @@ class LLMStage2TextExecutor:
                 stage="validate_candidate",
             ),
         )
-        parsed = self._call_json(prompt, "stage2.validate_candidate", default=None)
+        parsed = self._call_json(
+            prompt,
+            "stage2.validate_candidate",
+            default=None,
+            stage="candidate_validator",
+        )
         if not isinstance(parsed, dict):
             result = _technical_validation_failure()
             self._write_debug_artifact(
@@ -370,7 +391,12 @@ class LLMStage2TextExecutor:
                 stage="refine_candidate",
             ),
         )
-        parsed = self._call_json(prompt, "stage2.refine_candidate", default=None)
+        parsed = self._call_json(
+            prompt,
+            "stage2.refine_candidate",
+            default=None,
+            stage="candidate_refiner",
+        )
         if not isinstance(parsed, dict):
             result = {
                 "theme": _clean_str(original.get("theme")),
@@ -412,12 +438,18 @@ class LLMStage2TextExecutor:
             "parse_failure_count": self.parse_failure_count,
         }
 
-    def _call_json(self, prompt: str, context: str, *, default: Any) -> Any:
+    def _call_json(self, prompt: str, context: str, *, default: Any, stage: str) -> Any:
+        temperature = resolve_llm_temperature(stage)
         attempts = self.max_retries + 1
         for index in range(attempts):
             self.llm_call_count += 1
-            raw_response = self.llm_provider.generate_text(prompt)
-            self._last_call = {"raw_response": raw_response, "parse_error": None, "context": context}
+            raw_response = self.llm_provider.generate_text(prompt, temperature=temperature)
+            self._last_call = {
+                "raw_response": raw_response,
+                "parse_error": None,
+                "context": context,
+                "temperature": temperature,
+            }
             try:
                 return parse_llm_json(raw_response, context=context)
             except LLMJsonParseError:
