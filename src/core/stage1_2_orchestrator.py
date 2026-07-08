@@ -6,7 +6,7 @@ from typing import Any
 
 from src.core.graph.stage1_2_builder import build_stage1_2_graph
 from src.core.graph.state import to_graph_state
-from src.core.nodes.stage2 import DEFAULT_CANDIDATE_COUNT, Stage2TextExecutor
+from src.core.nodes.stage2 import Stage2TextExecutor
 from src.core.observability import build_root_trace_metadata
 from src.core.pipeline_result import PipelineResult
 from src.core.prompts.composer import PromptComposer
@@ -43,7 +43,7 @@ class Stage1_2Orchestrator:
             text_executor=self.text_executor,
             storage=self.storage,
             shortage_hitl_enabled=shortage_hitl_enabled,
-            candidate_count=candidate_count or DEFAULT_CANDIDATE_COUNT,
+            candidate_count=candidate_count,
         )
 
     def start_session(

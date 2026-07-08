@@ -110,6 +110,8 @@ Ignoring hard details such as age, target subject, setting, truth mode, fallback
 
 Severe duplicates from `deduplication_results` should receive very low `novelty` and should not receive a high `total_score`. Borderline duplicates may remain but should receive lower `novelty`.
 
+For `FAIRY_TALE` with resolved `RUSSIAN_FOLK_TALE` and/or vivid entity layers (for example `FAIRY_TALE_ANIMAL_FOX`): lower `child_interest` and `style_fit` when the candidate is a flat helpful-lesson template — no direct speech, no playful conflict, no folk cadence — despite age-simple wording.
+
 `visual_potential` is a text-only heuristic based on theme clarity and illustration readiness. Do not call image generation, image prompt execution, visual validation or Stage 3 pipeline.
 
 # Immutable / Non-owner Fields

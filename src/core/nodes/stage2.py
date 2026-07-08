@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from src.core.graph.state import GraphState
 from src.core.prompts.composer import PromptComposer
 from src.core.prompts.registry import PromptRegistry
+from src.core.stage2_expressiveness_policy import resolve_candidate_count
 from src.core.stage2_gate_policy import apply_character_consistency_gate_policy
 from src.core.stage2_length_post_check import apply_length_post_check
 from src.core.stage2_truth_post_check import apply_truth_post_check
@@ -66,7 +67,10 @@ def candidate_text_generator(
 ) -> GraphState:
     session = state["session"]
     _require_stage1_ready(session)
-    count = candidate_count or DEFAULT_CANDIDATE_COUNT
+    count = resolve_candidate_count(
+        candidate_count,
+        session.normalized_request.output_count,
+    )
     build = composer.build_stage_context(
         normalized_request=session.normalized_request,
         prompt_context=session.prompt_context,

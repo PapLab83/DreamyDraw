@@ -47,7 +47,6 @@ def main() -> int:
         storage=storage,
         text_executor=text_executor,
         prompts_root=Path(__file__).resolve().parents[1] / "prompts",
-        candidate_count=3,
     )
 
     if args.session:

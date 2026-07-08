@@ -11,7 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from src.core.graph import routing as r
 from src.core.graph.state import GraphState
 from src.core.nodes import stage1, stage2
-from src.core.nodes.stage2 import DEFAULT_CANDIDATE_COUNT, Stage2TextExecutor
+from src.core.nodes.stage2 import Stage2TextExecutor
 from src.core.observability import build_node_trace_metadata, enrich_approved_text_trace_refs, record_node_trace
 from src.core.prompts.composer import PromptComposer
 from src.core.prompts.registry import PromptRegistry
@@ -29,7 +29,7 @@ def build_stage1_2_graph(
     storage: JSONStorage | None = None,
     checkpointer: Optional[MemorySaver] = None,
     shortage_hitl_enabled: bool = False,
-    candidate_count: int = DEFAULT_CANDIDATE_COUNT,
+    candidate_count: int | None = None,
 ):
     graph = StateGraph(GraphState)
 

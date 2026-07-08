@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from src.core.stage2_expressiveness_policy import append_expressiveness_task
 from src.core.stage2_gate_policy import (
     append_truth_task,
     apply_character_consistency_gate_policy,
@@ -30,6 +31,8 @@ VALID_ISSUE_TYPES = set(REQUIRED_HARD_GATES) | {
     "text_overlength",
     "text_underlength",
     "sentence_too_complex",
+    "flat_narrative",
+    "style_fit_weak",
 }
 VALID_ISSUE_SEVERITIES = {"minor", "major", "critical"}
 VALID_VALIDATION_STATUSES = {"accepted", "needs_revision", "rejected"}
@@ -75,9 +78,13 @@ class LLMStage2TextExecutor:
                 ]
             },
             task=append_truth_task(
-                append_length_task(
-                    f"Generate up to {count} distinct text candidates. "
-                    "Return fewer if you cannot satisfy the contract safely.",
+                append_expressiveness_task(
+                    append_length_task(
+                        f"Generate up to {count} distinct text candidates. "
+                        "Return fewer if you cannot satisfy the contract safely.",
+                        runtime_context,
+                        stage="generate_candidates",
+                    ),
                     runtime_context,
                     stage="generate_candidates",
                 ),
@@ -215,11 +222,15 @@ class LLMStage2TextExecutor:
                     }
                 ]
             },
-            task=append_length_task(
-                scorer_task(
-                    "Score each candidate. Use only pass, fail, or unknown for every hard gate.",
-                    runtime_context.get("normalized_request_summary"),
-                    allowed_ids=allowed_ids,
+            task=append_expressiveness_task(
+                append_length_task(
+                    scorer_task(
+                        "Score each candidate. Use only pass, fail, or unknown for every hard gate.",
+                        runtime_context.get("normalized_request_summary"),
+                        allowed_ids=allowed_ids,
+                    ),
+                    runtime_context,
+                    stage="score_candidates",
                 ),
                 runtime_context,
                 stage="score_candidates",
@@ -279,7 +290,7 @@ class LLMStage2TextExecutor:
                 "summary": "string",
                 "issues": [
                     {
-                        "type": "safety|truth_fit|age_fit|utility_goal|subject_continuity|hard_details|character_consistency|text_overlength|text_underlength|sentence_too_complex",
+                        "type": "safety|truth_fit|age_fit|utility_goal|subject_continuity|hard_details|character_consistency|text_overlength|text_underlength|sentence_too_complex|flat_narrative|style_fit_weak",
                         "severity": "minor|major|critical",
                         "description": "string",
                     }
@@ -287,8 +298,12 @@ class LLMStage2TextExecutor:
                 "required_fixes": ["string"],
             },
             task=append_truth_task(
-                append_length_task(
-                    _validation_task(runtime_context),
+                append_expressiveness_task(
+                    append_length_task(
+                        _validation_task(runtime_context),
+                        runtime_context,
+                        stage="validate_candidate",
+                    ),
                     runtime_context,
                     stage="validate_candidate",
                 ),
@@ -339,10 +354,14 @@ class LLMStage2TextExecutor:
                 "changes_summary": "string",
             },
             task=append_truth_task(
-                append_length_task(
-                    (
-                        "Revise only the current candidate text according to validator issues. "
-                        "Preserve protected subject, truth mode, hard details, and character continuity."
+                append_expressiveness_task(
+                    append_length_task(
+                        (
+                            "Revise only the current candidate text according to validator issues. "
+                            "Preserve protected subject, truth mode, hard details, and character continuity."
+                        ),
+                        runtime_context,
+                        stage="refine_candidate",
                     ),
                     runtime_context,
                     stage="refine_candidate",

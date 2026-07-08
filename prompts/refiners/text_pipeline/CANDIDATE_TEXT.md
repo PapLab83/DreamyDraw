@@ -123,7 +123,14 @@ Refiner не создаёт `approved_texts`, не меняет `shortage` и н
 
 - сократи или дополни `text` до диапазона из `length_policy`;
 - упрости слишком длинные или сложные предложения по age layer body;
-- сохрани `theme`, subjects, `character_profile` и hard details.
+- сохрани `theme`, subjects, `character_profile` и hard details;
+- **сохрани прямую речь, народные повторы и игровую живость**; сжимай связки и второстепенное описание, а не яркие реплики.
+
+При issues `flat_narrative` или `style_fit_weak`:
+
+- добавь прямую речь, folk cadence (`шёл-шёл`, ласковые обращения) или игровой конфликт из активных style/entity layers;
+- не превращай текст в сухой пересказ «помогла — нашли — все довольны»;
+- оставайся в пределах `length_policy` и age layer.
 
 # Trace / Debug Expectations
 

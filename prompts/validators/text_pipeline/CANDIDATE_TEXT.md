@@ -122,6 +122,11 @@ rejected
 - предложения слишком сложные для возраста → `sentence_too_complex` или `age_fit`;
 - `questions` не входят в лимит предложений истории.
 
+Для `FAIRY_TALE` с активным `RUSSIAN_FOLK_TALE` и/или vivid entity layer проверяй выразительность:
+
+- плоский moral-lesson template без речи, без игрового конфликта и без folk cadence → `flat_narrative` или `style_fit_weak` (`severity = major`, `status = needs_revision`);
+- это не hard gate, но должно блокировать `accepted`, пока не исправлено refiner-ом или новой генерацией.
+
 `accepted_count` является metric/debug counter only. Это не достаточное условие остановки validation loop, потому что selector обязан исключать duplicate themes and critical gate failures.
 
 `selector_eligible_unique_accepted_count` является stop condition для достаточного количества accepted versions.

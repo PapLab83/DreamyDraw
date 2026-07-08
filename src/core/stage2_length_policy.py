@@ -57,8 +57,9 @@ def append_length_task(base: str, runtime_context: dict[str, Any] | None, *, sta
     suffix_by_stage = {
         "generate_candidates": (
             f" Story text must contain {sentences_min}-{sentences_max} sentences. "
-            f"Use {complexity} sentence complexity from the active age layer body. "
-            "Questions are outside this limit."
+            f"Use age-appropriate {complexity} sentence complexity from the active age layer body. "
+            "Simple wording must not mean bland list-like prose; vivid dialogue and concrete action "
+            "within the sentence limit are encouraged. Questions are outside this limit."
         ),
         "score_candidates": (
             f" Fail age_fit when story text has fewer than {sentences_min} or more than "
@@ -73,7 +74,7 @@ def append_length_task(base: str, runtime_context: dict[str, Any] | None, *, sta
             f" On text_overlength or text_underlength: adjust story text to "
             f"{sentences_min}-{sentences_max} sentences. "
             "On sentence_too_complex: shorten and simplify phrases. "
-            "Preserve theme, subjects, and hard details."
+            "Preserve theme, subjects, hard details, direct speech, and folk/playful color when present."
         ),
     }
     suffix = suffix_by_stage.get(stage)
