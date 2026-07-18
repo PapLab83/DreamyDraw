@@ -92,12 +92,12 @@ SessionState.approved_texts
 
 ### Principle
 
-Оркестратор является тонким фасадом над LangGraph:
+Активный Release 1 фасад является тонким слоем над LangGraph:
 
 ```text
-CLI/API
-  -> Orchestrator.start_session(...)
-  -> Orchestrator.run_pipeline(...)
+CLI
+  -> Stage1_2Orchestrator.start_session(...)
+  -> Stage1_2Orchestrator.run_pipeline(...)
   -> LangGraph
   -> SessionState in JSONStorage
 ```
@@ -118,7 +118,7 @@ CLI/API
 
 | Component | Responsibility |
 | --- | --- |
-| `Orchestrator` | Thin facade for session lifecycle and graph invocation. |
+| `Stage1_2Orchestrator` | Thin facade for session lifecycle and graph invocation. |
 | `GraphState` | Transport wrapper around `SessionState` plus resume/service fields. |
 | `SessionState` | Durable state and source of truth between nodes/processes. |
 | `JSONStorage` | Long-term session persistence. |

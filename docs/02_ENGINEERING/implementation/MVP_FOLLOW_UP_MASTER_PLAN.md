@@ -1,8 +1,10 @@
 # DreamyDraw MVP Follow-Up — Master Plan
 
-Status: **active backlog for lead → developer handoff**  
+Status: **historical Wave 11 follow-up / superseded for new planning**  
 Last updated: 2026-07-03  
 Audience: developers, project lead, technical reviewer
+
+> For new Release 2 planning, use `RELEASE_2_BACKLOG.md`. This document remains useful as Wave 11 history and implementation context, but should not be treated as the active backlog after Release 1 cleanup.
 
 ---
 

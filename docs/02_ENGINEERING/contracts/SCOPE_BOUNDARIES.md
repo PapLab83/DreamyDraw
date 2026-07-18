@@ -52,6 +52,7 @@
 
 * `docs/01_PRODUCT/PRODUCT_VISION.md`;
 * `docs/02_ENGINEERING/ROADMAP.md`;
+* `docs/02_ENGINEERING/implementation/RELEASE_2_BACKLOG.md`;
 * отдельных draft-документах по визуальному этапу и новым форматам.
 
 Если идея начинает влиять на поля `normalized_request` или `prompt_context`, её нужно вернуть в контрактные документы.

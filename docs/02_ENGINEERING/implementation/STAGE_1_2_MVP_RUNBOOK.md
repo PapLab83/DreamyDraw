@@ -214,7 +214,7 @@ Stage 1 applies these defaults when the user request is meaningful but omits exp
 | `truth_mode` | `TRUTH` | Overridden when the request explicitly asks for сказка, миф, правда and similar signals. |
 | `target_age` | `5` | Seed prompt layers exist only for ages **3** and **5**. No clarification is asked when age is missing. |
 
-Follow-up backlog and known product/code gaps: `MVP_FOLLOW_UP_MASTER_PLAN.md`.
+Release 2 backlog and known product/code gaps: `RELEASE_2_BACKLOG.md`.
 
 ## Known MVP Limitations
 

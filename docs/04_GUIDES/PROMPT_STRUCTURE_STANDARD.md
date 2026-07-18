@@ -1,61 +1,61 @@
-# Стандарт оформления промптов (DreamyDraw)
+# Prompt Structure Standard - DreamyDraw
 
-В проекте DreamyDraw используется подход **"Documentation-as-Code"**. Промпты хранятся в Markdown-файлах в директории `docs/03_PROMPTS/`. Это позволяет совмещать человекочитаемое описание стратегии с исполняемым кодом для ИИ.
+Status: Release 1 prompt asset guide.
 
----
+## 1. Active Prompt Root
 
-## 1. Структура документа (.md)
+Release 1 prompt assets live in:
 
-Каждый документ, участвующий в генерации промптов, должен состоять из двух частей: **Описательной** (для людей) и **Исполняемой** (для алгоритма).
-
-### Описательная часть
-Используется для фиксации бизнес-логики, примеров и правил. Включает заголовки:
-- `# NAME` — название блока.
-- `## Назначение` — за что отвечает.
-- `## Когда используется` — триггеры включения.
-- `## Что разрешено / запрещено` — чек-лист для редактора.
-- `## Примеры` — эталоны качества.
-
-### Исполняемая часть (PROMPT_BLOCK)
-Это единственный блок, который парсится алгоритмом. Он должен быть оформлен строго:
-1. Заголовок второго уровня: `## PROMPT_BLOCK`
-2. Блок кода с типом `text` сразу после заголовка.
-
-**Пример:**
-```markdown
-## PROMPT_BLOCK
-​```text
-[Инструкция для ИИ]
-...
-​```
+```text
+prompts/
 ```
 
----
+They are loaded by `src/core/prompts/registry.py` and composed by `src/core/prompts/composer.py`.
 
-## 2. Внутренняя структура PROMPT_BLOCK
+The old `docs/03_PROMPTS/**` tree and `src/core/prompt_builder.py` belong to the deprecated legacy pipeline. Do not create new Release 1 prompt assets there.
 
-Внутри блока кода рекомендуется соблюдать единообразие для лучшего понимания моделью:
+## 2. Prompt Layer Shape
 
-1. **Заголовок блока:** Название в квадратных скобках (например, `[TRUTH_MODE]`).
-2. **Главная инструкция:** Четкое действие.
-3. **Правила (`## Правила:`):** Список через дефис.
-4. **Ограничения (`## Ограничения:`):** Что ИИ делать нельзя.
-5. **Формат ответа (`## Формат ответа:`):** Описание структуры (JSON, текст, список).
-6. **Примеры (`## Хорошо / ## Плохо`):** Краткие примеры прямо в промпте.
+Each active prompt layer is a Markdown file with:
 
----
+1. YAML front matter metadata.
+2. A human-readable body used as the layer text.
 
-## 3. Как это работает в коде
+The exact metadata contract is defined in:
 
-1. **Класс `PromptBuilder`:** Сканирует папку `docs/03_PROMPTS/`.
-2. **Парсер:** Ищет маркер `## PROMPT_BLOCK`.
-3. **Экстракция:** Копирует содержимое следующего за маркером блока кода тройных кавычек.
-4. **Композиция:** Собирает финальный промпт из извлеченных кусков согласно правилам из `docs/03_PROMPTS/composition/`.
+```text
+docs/02_ENGINEERING/contracts/PROMPT_FILE_CONTRACT.md
+```
 
----
+Related contracts:
 
-## 4. Рекомендации по наполнению
+```text
+docs/02_ENGINEERING/contracts/PROMPT_LOOKUP_CONTRACT.md
+docs/02_ENGINEERING/contracts/PROMPT_COMPOSITION_CONTRACT.md
+docs/02_ENGINEERING/contracts/SEED_SCOPE.md
+```
 
-- **Лаконичность:** В блоке `PROMPT_BLOCK` пишите только то, что влияет на результат. Теорию оставляйте в описательной части.
-- **Переменные:** Допускается использование переменных в фигурных скобках (например, `{topic}`, `{image_style}`), которые будут подставлены алгоритмом автоматически.
-- **Именование:** Имена файлов должны быть в верхнем регистре, слова разделены подчеркиванием (например, `FAIRY_TALE.md`).
+## 3. Composition Flow
+
+```text
+PromptRegistry.load(prompts/)
+  -> metadata lookup
+  -> resolved / fallback / unresolved details
+  -> PromptComposer stage context
+  -> Stage 2 executor runtime prompt
+```
+
+Prompt bodies are loaded explicitly at runtime. Full prompt bodies should not be persisted in normal session trace refs.
+
+## 4. Editing Guidance
+
+- Keep prompt changes scoped to the active `prompts/` tree.
+- Do not rewrite animal/style architecture during Release 1 cleanup.
+- Do not add image, animation or Stage 3 prompt paths for Release 1.
+- If a prompt issue requires Python policy changes, hand it off to engineering instead of hiding the requirement in an `.md` file.
+
+For prompt-agent onboarding and handoff rules, see:
+
+```text
+docs/02_ENGINEERING/PROMPT_AGENT_ROLE.md
+```

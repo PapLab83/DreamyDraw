@@ -1,167 +1,60 @@
-# ROADMAP.md - План реализации
+# ROADMAP.md - DreamyDraw
 
-## Этап 1: Документация (Текущий) ✓
-- [x] ARCHITECTURE.md
-- [x] MODULES.md
-- [x] REQUIREMENTS.md
-- [x] ROADMAP.md
+Status: release roadmap index.
 
-## Этап 2: Прототип (CLI + Mocks)
-- [x] Базовая структура проекта и Pydantic модели.
-- [x] Реализация JSON Storage с блокировками.
-- [x] Оркестратор пайплайна (текст -> картинка -> вопросы).
-- [x] CLI интерфейс (`fast` и `check` режимы).
-- [x] Мок-провайдеры (выдача текстовых заглушек и JPG-картинки из `assets/mocks`).
+## Release 1 - Stage 1-2 Text MVP
 
-## Этап 3: Промпты
-- [x] Разработка системных промптов для разных режимов правдивости и стилей.
-- [x] Согласование промптов с руководителем.
+Goal:
 
-## Этап 4: Техдолг, баги, фиксы
-- [x] Время обращения к провайдеру каждые 15 сек, легко настраивать чтобы было в одном месте
+```text
+request -> Stage 1 interpretation -> prompt layers -> Stage 2 text pipeline -> approved_texts
+```
 
-## Этап 5: Оркестратор 
-- [x] описать логику исполнения оркестратора в документацию
-           + проверка запроса на соответствие режима с выбором продолжения или остановки (через ллм модель)
-           + генератор идей, это отдельные промпты и задачи, имено генератор идей дает сюжеты для детских иллюстраций
-                       + генерация только идей 
-                       + каждой идее детский индекс от 0 до 1 (чем ниже тем более опасно для ребенка контент)
-           + детские ииндексы обработать функцией приведения к равномерному распределению
-           + случайным образом из равномерного распределения выбирается идея
-           + на идею накладываются детские фильтры с режимами, стилями и тд (уже большая часть есть, нужен рефактор)
-           + валидатор сюжета (может давать замечания и рекомендации к исправлению)
-           + повторный детский фильтр с учетом замечаний и рекомендаций валидатора
-           + валидатор сюжета может до 3 раз отклонить работу детского фильтра, после необходимо взять новую идею
-           + после выбора новой идеи цикл начинается повторно по сути как выше описано 
-           + можно создавать сборку из Н рассказов, как бы связанных но не повторяющихся по смыслу точно
-- [x] реализовать оркестратор в соответствии с логикой (рефактор)
-- [ ] дополнительно
-           + Обновить документацию с учетом текущего реализованного функционала (ROADMAP.md не обновлять)
-           + Сделать умной необходимость пользователю вмешиваться в спор между валидатором и редактором (например после 3 попыток)
-           + Редактор после ревьюера должен принимать в расчет замечания ревьюера а не генерить дичь заново
-           + При режиме Миф все равно блокирует промпт от режима Факт
-           + Обновить планировщик серий по аналогии с валидаторами и редакторами для разных режимов
-           + Все магические числа в коде и в промтах вынести в конфиг, заменить принты на логи
-           + Добавление LangFuse
-           + Переход на LangGraph
-                       + основные изменения  
-                       + баги (см план ниже) 
-                       + тесты 
-           + Langfuse: лишний `_update_trace_metadata` в Orchestrator
-           + `parse_llm_json` не снимает markdown-обёртку
-           + привести доументацию СПЕЦИФИКАЦИЯ ОРКЕСТРАТОРА в соответствии с кодом
-           + зафиксировать некоторые основные положения из целевого представления продукта
-           + описать контракты
-                        + contract normalized params/state;
-                        + contract prompt file;
-                        + contract prompt lookup;
-                        + contract prompt composition;
-                        + contract stage-specific inputs/outputs; 
-           - зафиксировать golden scenarios
-           - сформировать промпты в соответствии с контрактами
-           - narrative stories: TRUTH / MYTH / FAIRY_TALE;
-                        - target_age: 3 и 5;
-                        - subjects: 2-3 animals, doctor/profession, custom named character;
-                        - utility: NARRATIVE и TEACHING;
-                        - teaching topics: hand washing, road crossing, strangers as sensitive golden scenario.
-           - Реализовать PromptRegistry / PromptComposer
-                        - загрузка metadata;
-                        - lookup;
-                        - fallback;
-                        - composition для stage contexts;
-                        - запись prompt_context в session.
-           - Интегрировать в первый и второй этап
-                        - analyzer пишет normalized params;
-                        - lookup формирует prompt_context;
-                        - generator/scorer/validator/refiner используют stage-specific contexts.
-           - Прогнать golden scenarios и дебажить
-                        - проверить normalized params;
-                        - проверить найденные слои;
-                        - проверить candidate texts;
-                        - проверить scoring / validation / refiner;
-                        - зафиксировать регрессии.
-           + Реализовать контракт `subjects / character_profile / subject_continuity_policy` из `TARGET_ORCHESTRATION_LOGIC.md` в Pydantic-схемах, prompt context, hard gates и refiner constraints второго этапа.
-           + промпты про животных: 
-                         + нужно ли животных сразу к персонажам относить (просто делить их на настоящие и сказочные и мифологические)
-                         + базовый промпт для всех животных
-                         + промпты для зверей факты из хороших книг 
-                                      + ежик
-                                      + лиса
-                                      + мышь
-                                      + кошка 
-                                      + лошадь
-           - промпты про природные явления: 
-                         - базовый промпт для природных явлений
-                         - промпты про природные явления факты из хороших книг 
-                                      - гроза
-                                      - дождь
-                                      - смерчь
-                                      - радуга
-                                      - фотосинтез
-                                      - огонь
-           - промпты стилей познавательных текстов
-                         - базовый познавательный
-                         - натуралистичный
-                         - энциклопедический
-           - промпты сказочных стилей
-                         - базовый сказочный
-                         - русско-народная сказка
-                         - скандинавская сказка
-                         - в стиле чуковского
-                         - в стиле маршака (? а может это познавательный стиль)
-           - промпты стилей мифов
-                         - базовый стиль для мифов
-                         - Мифы Древней Греции
-                         - Славянская мифология
-           - промпты для персонажей: 
-                         - животные (список выше)
-                         - герои мифов (5-7)
-                         - герои русских сказок (5-7)
-           + начать переход на новую архитектуру в соответствии с целевым видением, перед этим разбить на план
-           - LangFuse для генерации картинок и видео работает не так как ожидается
-           - Добавлять текста в картинки всегда фиксировано (бывают ошибки)
-           - Добавить генерацию видео/анимации картинок по описанию и сюжетам в тч поучительные, мотивационные, обучающие, развлекающие и др...
-           - Добавить возможность добавлять свое фото или видео и наделять своего персонажа какими то характеристиками
-             Как это можно реализовать с точки зрения логики процессов:
-                    - Загрузка фото ребенка 
-                    - Получение с фото признаков и описание
-                    - Присвоить ребенку какого-либо персонажа
-                    - Генерация мультиков или иллюстраций с персонажем 
-                    - Сюжеты мб написаны по своим или выдуманным сюжетам, среди них мб поучительные, мотивационные, обучающие, развлекающие и др...
-                    - Генерация иллюстраций и мультиков
-                    - На разных этапах нужна валидация, ревью, редактирование
-            - Ассинхронный запск иллюстраций только после согласования текстов
-- [ ] Агрессивное тестирование (провакационные запросы, сомнительные рекомендации после валидации и др)
-- [ ] Техдолг (см план ниже)
+Acceptance scope:
 
+- text-only CLI through `scripts/run_stage1_2_mvp.py`;
+- `mock` executor by default;
+- optional manual `--executor llm`;
+- automated tests with mock/scripted providers only;
+- no image generation, animation, UI or Stage 3;
+- legacy `main.py` / `fast/check` / old image path are not the release contour.
 
-## Этап 6+: (Будущее)
-- [+] Нужно поменять подход для генерации идей по мотивам пользователя
-      Сейчас агент из за промпта откровено странные идеи дает. Хотелось бы получать интересные факты про животных. Эти факты можно будет переделать на детский лад.
-      Похоже что здесь напрашивается создание для начала обычного JSON-файла. 
-      Затем если будем разрастаться примерами, то берем векторную библиотеку (например, FAISS или ChromaDB), которая работает локально прямо в папке проекта
-- [ ] добавить поучительные промпты и задачи для детей: приучение к горшку и порядку например, мотивация для плавания или спорта детского и др
-- [+] Добавить отдельный параллельный формат результата: картинки-загадки / интерактивные задания для детей. Это не подрежим `utility_mode`, а отдельный `content_format` рядом с историями: выбор правильного предмета, найти лишнее, собрать по цвету, простые safety-задачи. Делать после стабилизации слоистой prompt-архитектуры, чтобы переиспользовать возрастные слои, utility, стили, базу знаний и валидаторы.
-- [ ] Добавить направление коротких английских микро-мультиков до 1 минуты. Рассматривать DreamyDraw как сценарный движок: сначала English story cards, затем storyboard из 4-6 кадров, затем animated slideshow с озвучкой и субтитрами, и только после этого полноценную video generation через отдельный video provider.
-- [ ] Добавить будущие `content_format` для визуального развития продукта: `story_card_series` (серия картинок по одному рассказу), `animation_loop` (петлевые/маятниковые анимации из картинки), `learning_micro_cartoon` (простые обучающие микро-мультики для процессов и правил).
-- [ ] Проработать мобильный/планшетный сценарий как будущий визуальный клиент: просмотр best-case examples, карточек, серий картинок, анимаций и библиотеки ребёнка.
-- [ ] Веб-интерфейс (локальный).
-- [ ] Docker.
-- [ ] Авторизация и баланс.
+Operational docs:
 
+- `implementation/STAGE_1_2_MVP_RUNBOOK.md`
+- `implementation/STAGE_1_2_MVP_ACCEPTANCE_CHECKLIST.md`
+- `implementation/RELEASE_1_CLEANUP_TASK.md`
 
-## Тех. долг
+## Release 1 Cleanup
 
-**1 [mock] LLMMockProvider — один ответ на любой промпт**
-Не возвращает JSON для safety/config/planner/scoring/validator → `--mode fast` без реальной LLM не работает.  
-Решение: роутер по ключевым словам промпта + набор `mocks/*.json` заглушек.
+Current cleanup phases:
 
-**2 [restore] Resume сессии через `--session` неэффективен**
-MemorySaver не переживает процесс → safety/config/planner/scoring пере-выполняются (тратят токены).  
-Прерывание на interrupt-ноде (Ctrl+C на `user_confirmation`) не восстанавливается корректно.  
-Решение: в `Orchestrator.run_pipeline` детектить state из JSON и стартовать граф с нужной ноды через entry-point router; либо использовать SqliteSaver вместо MemorySaver.
+1. Inventory and dependency audit.
+2. Documentation sync and Release 2 backlog.
+3. Legacy cleanup after import/test dependency audit.
+4. Smoke/regression checks.
 
-**3 [cli] Presentation layer: `print` смешан с main**
-Сейчас приемлемо для CLI, но мешает добавить веб/Telegram.  
-Решение: вынести в `src/cli/output.py` (класс CliOutput с методами print_*/ask_*), опционально на `rich`.  
-Делать перед добавлением второго presentation-слоя.
+Legacy code deletion must happen only after dependency audit. In particular, be careful with `providers/*`, `src/core/factory.py`, `src/utils/cli_parser.py`, `src/models/schemas.py` and shared test fixtures.
+
+## Release 2+
+
+Active backlog:
+
+```text
+implementation/RELEASE_2_BACKLOG.md
+```
+
+Major themes:
+
+- semantic resolver and parameter extraction;
+- prompt architecture and final prompt diagnostics;
+- animal/entity redesign;
+- style/substyle architecture, including Russian folk and Chukovsky/reference labels;
+- educational domains and English-learning direction;
+- Stage 2 quality tuning;
+- diversity/content banks;
+- image generation, animation and Stage 3.
+
+## Historical Roadmap
+
+Older wave plans, implementation plans and legacy roadmap notes are historical context. They should not be used as Release 1 source of truth unless their decisions have been folded into current docs or `RELEASE_2_BACKLOG.md`.

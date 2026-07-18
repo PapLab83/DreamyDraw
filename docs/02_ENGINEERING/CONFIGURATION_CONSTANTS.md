@@ -1,8 +1,8 @@
 # CONFIGURATION_CONSTANTS.md - Константы и конфигурация
 
-Документ фиксирует целевое состояние рефакторинга из этапа 5: все магические значения в коде и промптах должны быть вынесены в именованные константы или настройки.
+Документ фиксирует целевое состояние конфигурации: все магические значения в активном Stage 1-2 контуре и prompt pipeline должны быть вынесены в именованные константы или настройки.
 
-`ROADMAP.md` в рамках этой задачи не обновляется.
+Release 1 actual is text-only Stage 1-2. References to legacy `main.py`, `PromptBuilder`, image polling or media constants below are historical/cleanup context unless the value is still used by active provider compatibility code.
 
 ---
 
@@ -24,7 +24,7 @@
 | Переменные окружения и внешние настройки запуска | `src/config/settings.py` + `.env.example` | провайдеры, модели, директории, таймауты API |
 | Бизнес-лимиты пайплайна | `src/config/settings.py` или `src/config/constants.py` | `IDEA_POOL_SIZE`, `MIN_CHILD_INDEX`, `MAX_VALIDATION_RETRIES` |
 | Строковые имена состояний и решений | `src/config/constants.py` или Enum в моделях | `plan_needs_refine`, `REVISE`, `ALREADY_OK` |
-| Значения, которые попадают в промпты | настройки + подстановка через `PromptBuilder` | возраст, число вопросов, число идей |
+| Значения, которые попадают в промпты | настройки + runtime composition через active prompt pipeline | возраст, число вопросов, число идей |
 | Чисто локальные временные индексы цикла | оставить локально | `for i, item in enumerate(...)` |
 
 Если значение влияет на поведение продукта, стоимость, качество, лимиты или UX, оно не должно быть локальным литералом.
@@ -106,7 +106,7 @@ class Settings(BaseSettings):
 
 ## 5. Промпты после рефакторинга
 
-`PromptBuilder` должен передавать в шаблоны единый словарь продуктовых параметров.
+В активном Release 1 контуре значения должны попадать в prompt context через `PromptRegistry` / `PromptComposer` и stage-specific runtime context. Legacy `PromptBuilder` относится к старому пайплайну и не является целевым механизмом.
 
 Пример целевого подхода:
 
@@ -128,9 +128,9 @@ class Settings(BaseSettings):
 Рефакторинг считается завершенным, когда:
 
 1. В `src/` нет поведенческих числовых литералов без имени, кроме локальных индексов, булевых значений и очевидных нейтральных значений `0`/`1`.
-2. `main.py` не импортирует константы из `orchestrator.py`; общие значения берутся из `settings` или `constants`.
+2. Active CLI and orchestration code do not depend on hidden local magic values; общие значения берутся из `settings` или `constants`.
 3. `.env.example` содержит все настройки, которые допускается менять без правки кода.
-4. Промпты получают продуктовые лимиты через подстановку из `PromptBuilder`.
+4. Промпты получают продуктовые лимиты через active prompt/runtime context.
 5. `REQUIREMENTS.md`, `ORCHESTRATOR_SPEC.md` и этот документ описывают одни и те же лимиты.
 6. Есть тесты на `parse_count`, пороги валидации, фильтр `child_index`, нормализацию весов и подстановку параметров в промпты.
 

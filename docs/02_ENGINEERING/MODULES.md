@@ -1,59 +1,76 @@
-# MODULES.md - Модули и интерфейсы
+# MODULES.md - Modules And Interfaces
 
-## 1. Core / Orchestrator (`src/core/orchestrator.py`)
-Центральный узел системы, реализующий бизнес-логику пайплайна.
+Status: current Release 1 module map.
 
-- **Основные методы:**
-    - `run_pipeline(session_id: str)`: Запуск или возобновление процесса генерации.
-    - `_step_series_planner`: Генерация настраиваемого пула идей.
-    - `_step_idea_scoring`: Оценка идей по "Детскому индексу".
-    - `_step_idea_sampler`: Взвешенный отбор N уникальных идей.
-    - `_step_plan_validator`: Проверка идей Критиком.
-    - `_step_plan_refine`: Цикл Reviewer -> Refiner для исправления тем.
-    - `_pipeline_content_generation`: Генерация финальных рассказов на базе одобренного плана.
+## 1. Active Release 1 Modules
 
-## 2. Prompt Builder (`src/core/prompt_builder.py`)
-Динамическая сборка промптов из шаблонов в `docs/03_PROMPTS/`.
-- Поддерживает инъекцию контекста (approved items, user comments, validator feedback).
+| Module | Purpose |
+| --- | --- |
+| `scripts/run_stage1_2_mvp.py` | Main CLI for the Stage 1-2 text-only MVP. |
+| `src/core/stage1_2_orchestrator.py` | Thin public facade for session lifecycle and graph invocation. |
+| `src/core/graph/stage1_2_builder.py` | Builds the active Stage 1-2 LangGraph. |
+| `src/core/graph/routing.py` | Routing rules for Stage 1 and Stage 2. Also contains legacy routing functions pending cleanup. |
+| `src/core/graph/state.py` | Graph state conversion and shared graph state type. |
+| `src/core/nodes/stage1.py` | Request interpretation, clarification, layer resolution and prompt context preparation. |
+| `src/core/nodes/stage2.py` | Candidate generation, deduplication, scoring, validation/refinement and approved text selection. |
+| `src/core/prompts/` | Prompt registry, lookup, composition and prompt metadata models. |
+| `src/core/stage2_mock_executor.py` | Default local Stage 2 text executor. |
+| `src/core/stage2_llm_executor.py` | Optional manual LLM-backed Stage 2 executor. |
+| `src/core/stage2_*policy.py`, `src/core/stage2_*post_check.py` | Deterministic Stage 2 guardrails and prompt task suffixes. |
+| `src/models/schemas.py` | Pydantic state and request models. Includes compatibility models for the old entrypoint. |
+| `src/storage/json_storage.py` | JSON-backed session persistence. |
+| `src/providers/` | LLM/provider interfaces and implementations. Image provider classes remain for legacy/future compatibility. |
 
-## 3. Providers (`src/providers/`)
-- `BaseLLMProvider`: Интерфейс для текстовых моделей.
-- `BaseImageProvider`: Интерфейс для генерации изображений.
-- `LLMMockProvider`: Мок-провайдер для тестирования логики без затрат на API.
+## 2. Active Prompt Assets
 
-## 4. Models (`src/models/schemas.py`)
-- `Idea`: Структура для хранения варианта сюжета со скорингом.
-- `StoryItem`: Окончательная история (текст, вопросы, картинка).
-- `SessionState`: Полный снимок состояния сессии, включая "Зону доверия" (`approved_plan_items`).
+Release 1 prompt assets live under:
 
-## 5. Storage (`src/storage/json_storage.py`)
-- `JSONStorage`: Сохранение и загрузка `SessionState`. Использует структуру `output/<session_id>/state.json`.
+```text
+prompts/
+```
 
-## 6. Configuration (`src/config/settings.py`)
-- `Settings`: Настройки из `.env` (API ключи, модели, лимиты).
-- Все поведенческие лимиты и пороги должны быть доступны по имени через `settings.py` или `constants.py`: размер пула идей, пороги валидации, пороги скоринга, лимиты вопросов, возрастные рамки, polling/timeout провайдеров.
-- Детальная схема вынесения магических значений описана в `docs/02_ENGINEERING/CONFIGURATION_CONSTANTS.md`.
+They are loaded by `PromptRegistry` and composed by `PromptComposer`.
 
-## 7. Файловая структура (Актуальная)
+## 3. Legacy Modules
+
+The following modules belong to the deprecated plan/text/image pipeline:
+
+```text
+main.py
+src/core/orchestrator.py
+src/core/graph/builder.py
+src/core/prompt_builder.py
+src/core/nodes/safety.py
+src/core/nodes/planning.py
+src/core/nodes/validation.py
+src/core/nodes/content.py
+docs/03_PROMPTS/**
+```
+
+They are cleanup candidates, but deletion requires dependency audit and removal/rewiring of legacy tests.
+
+## 4. File Structure
+
 ```text
 dreamydraw/
-├── docs/                 # Документация и Системные промпты
-│   └── 03_PROMPTS/       # Шаблоны промптов (Planner, Validator, и др.)
-├── output/               # Результаты сессий (JSON + JPG)
+├── prompts/                         # Active Stage 1-2 prompt layers
+├── scripts/
+│   └── run_stage1_2_mvp.py           # Active Release 1 CLI
 ├── src/
 │   ├── core/
-│   │   ├── orchestrator.py  # Главный оркестратор
-│   │   ├── factory.py       # Фабрика провайдеров
-│   │   └── prompt_builder.py # Сборщик промптов
+│   │   ├── stage1_2_orchestrator.py
+│   │   ├── graph/
+│   │   ├── nodes/
+│   │   ├── prompts/
+│   │   └── stage2_*                  # Text executor/policy/post-check modules
 │   ├── models/
-│   │   └── schemas.py       # Pydantic модели
 │   ├── providers/
-│   │   ├── base.py          # Базовые классы
-│   │   └── gptunnel.py      # Реализация для GPTunnel
 │   ├── storage/
-│   │   └── json_storage.py  # Хранилище сессий
 │   └── config/
-│       └── settings.py      # Настройки проекта
-├── main.py                  # Точка входа
-└── requirements.txt
+├── tests/
+└── docs/
 ```
+
+## 5. Future Modules
+
+Image generation, animation, visual QA, UI and Stage 3 are target/future modules. They should be specified separately and must consume the text result from `approved_texts` rather than reintroducing the old `fast/check` image pipeline.

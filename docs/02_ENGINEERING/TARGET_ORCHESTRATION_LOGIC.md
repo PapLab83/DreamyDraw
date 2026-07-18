@@ -6,6 +6,8 @@
 
 Документ описывает целевую логику работы оркестратора с точки зрения пользовательского сценария, подготовки параметров генерации, принятия решений системой, взаимодействия с пользователем и последовательной подготовки итогового результата.
 
+Статус: target/reference document. It is not a Release 1 acceptance checklist. Release 1 implements a Stage 1-2 text-only subset ending at `approved_texts`; future visual stages and richer semantic resolution are tracked separately in `implementation/RELEASE_2_BACKLOG.md`.
+
 Документ фиксирует не техническую реализацию LangGraph-графа, а логическую модель продукта:
 
 * что пользователь вводит;

@@ -1,76 +1,72 @@
-# CLI Usage Guide — DreamyDraw
+# CLI Usage Guide - DreamyDraw
 
-В этом документе собраны все доступные команды и параметры для запуска системы из терминала.
+Status: Release 1 CLI guide.
 
-## 1. Команда с максимальным набором флагов
+## 1. Active Release 1 CLI
 
-Используйте этот шаблон для полной настройки генерации:
+Use the Stage 1-2 MVP runner:
 
 ```bash
-python3 main.py "расскажи про лису" \
-  --truth "Миф" \
-  --text-style "Игровой" \
-  --image-style "Акварельный" \
-  --mode "check" \
-  --count 3
+venv/bin/python scripts/run_stage1_2_mvp.py "Сделай 2 сказки про лису для 5 лет." --count 2
 ```
 
----
+Release 1 output is text-only and ends at `approved_texts`.
 
-## 2. Справочник флагов и значений
+Expected shape:
 
-### Основные параметры
-- `topic` (позиционный аргумент): Тема истории. Если в тексте есть число (например, "5 лисиц"), оно будет автоматически распознано как количество иллюстраций.
+```text
+session_id: ...
+completion_status: completed_enough
+approved_count: 2
+approved_texts:
+...
+```
 
-### Режимы правдивости (`--truth`)
-Определяют логику мира (из папки `docs/03_PROMPTS/text/truth_modes/`).
-- `Правда` — реализм, научные факты.
-- `Миф` — добрые легенды, устоявшиеся образы.
-- `Сказка` — говорящие животные, магия.
-*Дефолт: `Правда`*
+## 2. Arguments
 
-### Стили текста (`--text-style`)
-Определяют тональность (из папки `docs/03_PROMPTS/text/styles/`).
-- `Познавательный` — четкие факты, обучающий тон.
-- `Ласковый` — мягкие слова, уменьшительно-ласкательные формы.
-- `Игровой` — звуки, диалоги, призыв к действию.
-*Дефолт: `Познавательный`*
+| Argument | Meaning |
+| --- | --- |
+| `request` | Raw user request in natural language. |
+| `--count N` | Requested number of approved texts. Overrides count inferred from the request. |
+| `--session ID` | Resume an existing session. |
+| `--resume TEXT` | Clarification answer for an existing session. |
+| `--output-dir PATH` | Session storage directory. Defaults to `output/stage1_2_mvp` or `DREAMYDRAW_STAGE1_2_OUTPUT_DIR`. |
+| `--executor mock|llm` | Stage 2 executor. Default: `mock`. |
+| `--provider NAME` | LLM provider for `--executor llm`. |
+| `--model NAME` | LLM model for `--executor llm`. |
+| `--debug-llm` | Write LLM prompt/response debug artifacts for manual analysis. |
 
-### Стили картинки (`--image-style`)
-Определяют визуальный ряд (из папки `docs/03_PROMPTS/image/styles/`).
-- `Мультяшный` — яркие цвета, простые формы.
-- `Акварельный` — мягкие, размытые краски.
-- `Пластилиновый` — объемные фигурки с текстурой.
-- `Ночной/тихий` — приглушенные тона, синие оттенки.
-*Дефолт: `Мультяшный`*
+## 3. Default Executor
 
-### Режим работы (`--mode`)
-- `fast` — генерация текста и картинки происходит сразу (автомат).
-- `check` — система останавливается после текста и ждет вашего подтверждения (`y/n/r`) для перехода к рисованию.
-*Дефолт: `fast`*
+The default path is local:
 
-### Количество (`--count`)
-- Целое число (например, `--count 5`). Перекрывает число, найденное в теме.
-*Дефолт: `1`* (настраивается в `.env` через `DEFAULT_COUNT`)
-
-### Продолжение сессии (`--session`)
-- ID сессии (например, `--session 3f343fb2...`). Позволяет продолжить прерванную генерацию.
-
----
-
-## 3. Быстрые примеры для дебага
-
-**Проверка «Правды» (быстро):**
 ```bash
-python3 main.py "как растет гриб" --truth "Правда" --count 1
+venv/bin/python scripts/run_stage1_2_mvp.py "Сделай 1 правдивую историю про лису для 5 лет."
 ```
 
-**Проверка «Сказки» с подтверждением:**
+It must not call a real LLM or image provider.
+
+## 4. Manual LLM Executor
+
+The LLM executor is explicit and manual-only:
+
 ```bash
-python3 main.py "говорящий чайник" --truth "Сказка" --mode "check"
+venv/bin/python scripts/run_stage1_2_mvp.py "Сделай 2 сказки про лису для 5 лет." --count 2 --executor llm
 ```
 
-**Максимально «милый» режим:**
+Provider configuration must be available through env or `.env`. Automated tests use scripted/mock providers only.
+
+## 5. Clarification And Resume
+
+Empty or unsupported input may pause for clarification:
+
 ```bash
-python3 main.py "котенок" --text-style "Ласковый" --image-style "Акварельный"
+venv/bin/python scripts/run_stage1_2_mvp.py ""
+venv/bin/python scripts/run_stage1_2_mvp.py --session <session_id> --resume "Сделай сказку про лису для 5 лет."
 ```
+
+## 6. Legacy CLI
+
+`main.py`, `--mode fast`, `--mode check`, `--image-style` and the old text->image flow belong to the deprecated legacy pipeline. They are not the Release 1 acceptance path.
+
+Do not use the legacy CLI as a model for new Stage 1-2 work.

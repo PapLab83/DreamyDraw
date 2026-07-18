@@ -1,30 +1,76 @@
-# Гайд по наполнению промптов (DreamyDraw)
+# Prompt Guide - DreamyDraw
 
-Для управления поведением ИИ используйте файл `src/prompts/system.yaml`. Алгоритм собирает финальный промпт как конструктор из указанных ниже секций.
+Status: Release 1 prompt guide.
 
-### 1. Базовые инструкции (`base_instruction`)
-Это фундамент, который ИИ получает **всегда**.
-- **system:** Кто такой ИИ (роль) и для кого пишет (ЦА).
-- **format:** Строгая структура ответа (как выделять текст и вопросы).
-- **constraints:** Технические границы (длина текста, количество вопросов, язык).
+## 1. Active Prompt System
 
-### 2. Режимы правдивости (`truth`, `myth`, `fairy_tale`)
-Текст из этих полей подставляется в зависимости от выбора режима в CLI/Web.
-- Пишите здесь **инструкции по логике мира** (могут ли животные говорить, должны ли факты быть научными).
+Release 1 uses Markdown prompt layers under:
 
-### 3. Стили текста (`gentle`, `educational`, `playful`)
-Подставляется в зависимости от выбранного стиля.
-- Пишите здесь **требования к тональности и лексике** (какие слова использовать, добавлять ли звуки "ф-ф-ф").
+```text
+prompts/
+```
 
-### 4. Генерация изображений (`image_base`)
-Шаблон для промпта, который отправляется в CreativeLab (Nano-Banana/DALL-E).
-- Используйте переменные в фигурных скобках:
-    - `{story_text}` — сюда подставится сгенерированный текст истории.
-    - `{image_style}` — сюда подставится название стиля (мультяшный и т.д.).
+The active code path is:
 
----
+```text
+PromptRegistry
+  -> prompt lookup
+  -> PromptComposer
+  -> Stage 2 text executor
+```
 
-### Правила заполнения:
-1. **Соблюдайте YAML-синтаксис:** Используйте символ `|` после названия ключа для написания многострочного текста.
-2. **Никаких лишних ключей:** Алгоритм ищет именно эти названия. Если создаете новый стиль, его нужно будет прописать в `src/models/schemas.py`.
-3. **Язык инструкций:** Сами инструкции ИИ можно писать как на русском, так и на английском (ИИ поймет оба), но результат он должен выдавать на русском согласно секции `constraints`.
+Do not add Release 1 prompt assets to `docs/03_PROMPTS/**`; that tree belongs to the legacy `PromptBuilder` pipeline.
+
+## 2. What Prompt Layers Control
+
+Prompt layers may describe:
+
+- content format;
+- truth mode;
+- utility mode/topic;
+- target age;
+- language;
+- entity/subject constraints;
+- style or reference label;
+- stage profile;
+- validator/refiner behavior.
+
+The exact file metadata contract is in:
+
+```text
+docs/02_ENGINEERING/contracts/PROMPT_FILE_CONTRACT.md
+```
+
+## 3. Release 1 Boundary
+
+Release 1 prompt work is text-only and must end at `approved_texts`.
+
+Do not add prompt paths for:
+
+- image generation;
+- image prompt execution;
+- animation;
+- visual QA;
+- Stage 3.
+
+Those are Release 2+ topics tracked in:
+
+```text
+docs/02_ENGINEERING/implementation/RELEASE_2_BACKLOG.md
+```
+
+## 4. Editing Rules
+
+- Keep changes scoped to the active prompt layer you are improving.
+- Do not redesign all animal prompts during Release 1 cleanup.
+- Do not move Russian folk style into a new architecture during Release 1 cleanup.
+- Preserve prompt metadata compatibility with `PromptRegistry`.
+- If the problem is caused by routing, post-checks or task suffixes in Python, hand it off to engineering.
+
+## 5. Prompt Agent
+
+For deeper prompt-quality work and handoff format, use:
+
+```text
+docs/02_ENGINEERING/PROMPT_AGENT_ROLE.md
+```
