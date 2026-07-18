@@ -19,7 +19,7 @@ PromptRegistry
   -> Stage 2 text executor
 ```
 
-Do not add Release 1 prompt assets to `docs/03_PROMPTS/**`; that tree belongs to the legacy `PromptBuilder` pipeline.
+Legacy `docs/03_PROMPTS/**` assets were removed during Release 1 cleanup together with the old `PromptBuilder` runtime. Release 1 prompt work belongs only in `prompts/**`.
 
 ## 2. What Prompt Layers Control
 

@@ -37,7 +37,9 @@ Completed:
 Remaining cleanup is intentionally narrower:
 
 - shared-file cleanup for mixed active/legacy modules such as `providers/*`, `src/core/factory.py`, `src/core/graph/routing.py` and `src/models/schemas.py`;
-- docs/assets cleanup for `docs/03_PROMPTS/**`, historical wave docs and backup material.
+- historical wave docs and backup material cleanup.
+
+The legacy `docs/03_PROMPTS/**` prompt assets were removed during Release 1 docs/assets cleanup.
 
 Do not remove shared compatibility code without a fresh dependency audit.
 

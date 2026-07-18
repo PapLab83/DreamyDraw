@@ -48,11 +48,13 @@ src/core/nodes/content.py
 
 The matching legacy graph/orchestrator/node tests were removed in the same pass. Shared compatibility files such as `src/core/factory.py`, `src/providers/*`, `src/core/graph/routing.py` and `src/models/schemas.py` remain intentionally untouched until a separate shared-file cleanup.
 
-The legacy prompt asset tree remains historical/reference material pending docs/assets cleanup:
+The legacy prompt asset tree was removed in the docs/assets cleanup pass:
 
 ```text
 docs/03_PROMPTS/**
 ```
+
+Historical references to that path may still exist in target/reference documents, but it is no longer part of the active repository assets.
 
 ## 4. File Structure
 

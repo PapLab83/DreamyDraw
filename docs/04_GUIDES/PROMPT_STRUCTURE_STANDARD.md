@@ -12,7 +12,7 @@ prompts/
 
 They are loaded by `src/core/prompts/registry.py` and composed by `src/core/prompts/composer.py`.
 
-`docs/03_PROMPTS/**` remains a legacy prompt asset tree. The old `src/core/prompt_builder.py` runtime module was removed during Release 1 cleanup. Do not create new Release 1 prompt assets in `docs/03_PROMPTS/**`.
+Legacy `docs/03_PROMPTS/**` assets and the old `src/core/prompt_builder.py` runtime module were removed during Release 1 cleanup. Create and edit Release 1 prompt assets only in `prompts/**`.
 
 ## 2. Prompt Layer Shape
 

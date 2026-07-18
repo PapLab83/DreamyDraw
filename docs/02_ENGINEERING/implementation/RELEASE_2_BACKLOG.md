@@ -72,7 +72,16 @@ Status: pending architecture decision.
 - Separate animal/entity constraints from style/substyle constraints where useful.
 - Decide whether Russian folk specificity belongs in animal layers, style layers or a dedicated substyle layer.
 - Simplify the generation prompt if diagnostics show overload.
-- Keep `prompts/**/*.md` as the active prompt asset root; `docs/03_PROMPTS/**` is legacy reference only.
+- Keep `prompts/**/*.md` as the active prompt asset root; legacy `docs/03_PROMPTS/**` assets were removed from the active tree during Release 1 cleanup.
+
+Prompt-quality inputs extracted from prompt-preparation drafts:
+
+- Fox/Russian folk/age 3 vividness needs a focused Release 2 prompt-quality pass after Release 1 acceptance.
+- Start with consistency: remove conflicting moral-lesson signals, duplicated anti-patterns and unclear happy-end defaults from the active hot path.
+- Align examples with age 3 length rules: short 3-4 sentence examples, with longer examples reserved for older ages or clearly marked as non-length templates.
+- Add compact episode sparks and phrase cadence, not full tale retellings: e.g. recognizable gestures such as asking to be let in, asking for a song, slipping away, playful trickster reversals and dialogue beats.
+- Validate with manual LLM/debug runs before expanding to other animals; do not make the current fox layer a universal template.
+- Hand off to engineering only if prompt cleanup shows Python task suffixes, scoring, validation, refinement or length post-checks are suppressing expressiveness.
 
 Status: pending prompt/engineering design.
 

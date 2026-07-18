@@ -2,7 +2,7 @@
 
 Документ фиксирует целевое состояние конфигурации: все магические значения в активном Stage 1-2 контуре и prompt pipeline должны быть вынесены в именованные константы или настройки.
 
-Release 1 actual is text-only Stage 1-2. References to legacy `main.py`, `PromptBuilder`, image polling or media constants below are historical/cleanup context unless the value is still used by active provider compatibility code.
+Status: target/reference. Release 1 actual is text-only Stage 1-2. References to removed legacy `main.py`, `PromptBuilder`, image polling or media constants below are historical cleanup context unless the value is still used by active provider compatibility code.
 
 ---
 
@@ -34,6 +34,8 @@ Release 1 actual is text-only Stage 1-2. References to legacy `main.py`, `Prompt
 ## 3. Инвентаризация текущих магических значений
 
 ### Код
+
+The legacy `main.py`, old `Orchestrator`, old `PromptBuilder` and old plan/text/image nodes referenced below were removed during Release 1 cleanup. Keep the table as reference input for a future shared/config cleanup pass.
 
 | Значение | Где сейчас | Целевое имя | Назначение |
 |---|---|---|---|
@@ -106,7 +108,7 @@ class Settings(BaseSettings):
 
 ## 5. Промпты после рефакторинга
 
-В активном Release 1 контуре значения должны попадать в prompt context через `PromptRegistry` / `PromptComposer` и stage-specific runtime context. Legacy `PromptBuilder` относится к старому пайплайну и не является целевым механизмом.
+В активном Release 1 контуре значения должны попадать в prompt context через `PromptRegistry` / `PromptComposer` и stage-specific runtime context. Legacy `PromptBuilder` был удален вместе со старым runtime-пайплайном и не является целевым механизмом.
 
 Пример целевого подхода:
 
