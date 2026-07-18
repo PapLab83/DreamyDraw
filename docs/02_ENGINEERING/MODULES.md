@@ -9,7 +9,7 @@ Status: current Release 1 module map.
 | `scripts/run_stage1_2_mvp.py` | Main CLI for the Stage 1-2 text-only MVP. |
 | `src/core/stage1_2_orchestrator.py` | Thin public facade for session lifecycle and graph invocation. |
 | `src/core/graph/stage1_2_builder.py` | Builds the active Stage 1-2 LangGraph. |
-| `src/core/graph/routing.py` | Routing rules for Stage 1 and Stage 2. Also contains legacy routing functions pending cleanup. |
+| `src/core/graph/routing.py` | Routing rules for Stage 1 and Stage 2. Also contains legacy routing functions pending shared-file cleanup. |
 | `src/core/graph/state.py` | Graph state conversion and shared graph state type. |
 | `src/core/nodes/stage1.py` | Request interpretation, clarification, layer resolution and prompt context preparation. |
 | `src/core/nodes/stage2.py` | Candidate generation, deduplication, scoring, validation/refinement and approved text selection. |
@@ -17,7 +17,7 @@ Status: current Release 1 module map.
 | `src/core/stage2_mock_executor.py` | Default local Stage 2 text executor. |
 | `src/core/stage2_llm_executor.py` | Optional manual LLM-backed Stage 2 executor. |
 | `src/core/stage2_*policy.py`, `src/core/stage2_*post_check.py` | Deterministic Stage 2 guardrails and prompt task suffixes. |
-| `src/models/schemas.py` | Pydantic state and request models. Includes compatibility models for the old entrypoint. |
+| `src/models/schemas.py` | Pydantic state and request models. Includes compatibility request models used by the active adapter/tests. |
 | `src/storage/json_storage.py` | JSON-backed session persistence. |
 | `src/providers/` | LLM/provider interfaces and implementations. Image provider classes remain for legacy/future compatibility. |
 
@@ -31,9 +31,9 @@ prompts/
 
 They are loaded by `PromptRegistry` and composed by `PromptComposer`.
 
-## 3. Legacy Modules
+## 3. Removed Legacy Modules
 
-The following modules belong to the deprecated plan/text/image pipeline:
+The deprecated plan/text/image runtime pipeline was removed during Release 1 cleanup:
 
 ```text
 main.py
@@ -44,10 +44,15 @@ src/core/nodes/safety.py
 src/core/nodes/planning.py
 src/core/nodes/validation.py
 src/core/nodes/content.py
-docs/03_PROMPTS/**
 ```
 
-They are cleanup candidates, but deletion requires dependency audit and removal/rewiring of legacy tests.
+The matching legacy graph/orchestrator/node tests were removed in the same pass. Shared compatibility files such as `src/core/factory.py`, `src/providers/*`, `src/core/graph/routing.py` and `src/models/schemas.py` remain intentionally untouched until a separate shared-file cleanup.
+
+The legacy prompt asset tree remains historical/reference material pending docs/assets cleanup:
+
+```text
+docs/03_PROMPTS/**
+```
 
 ## 4. File Structure
 

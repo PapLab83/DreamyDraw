@@ -25,16 +25,21 @@ Operational docs:
 - `implementation/STAGE_1_2_MVP_ACCEPTANCE_CHECKLIST.md`
 - `implementation/RELEASE_1_CLEANUP_TASK.md`
 
-## Release 1 Cleanup
+## Release 1 Cleanup Status
 
-Current cleanup phases:
+Completed:
 
-1. Inventory and dependency audit.
-2. Documentation sync and Release 2 backlog.
-3. Legacy cleanup after import/test dependency audit.
-4. Smoke/regression checks.
+- inventory and dependency audit;
+- documentation sync and Release 2 backlog;
+- legacy runtime cleanup for `main.py`, old `Orchestrator`, old graph builder, old nodes, old `PromptBuilder`, old CLI parser and their legacy tests;
+- smoke/regression checks for the active Stage 1-2 MVP.
 
-Legacy code deletion must happen only after dependency audit. In particular, be careful with `providers/*`, `src/core/factory.py`, `src/utils/cli_parser.py`, `src/models/schemas.py` and shared test fixtures.
+Remaining cleanup is intentionally narrower:
+
+- shared-file cleanup for mixed active/legacy modules such as `providers/*`, `src/core/factory.py`, `src/core/graph/routing.py` and `src/models/schemas.py`;
+- docs/assets cleanup for `docs/03_PROMPTS/**`, historical wave docs and backup material.
+
+Do not remove shared compatibility code without a fresh dependency audit.
 
 ## Release 2+
 

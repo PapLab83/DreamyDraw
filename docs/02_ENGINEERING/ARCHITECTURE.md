@@ -47,11 +47,11 @@ prompts/**/*.md
   -> stage-specific runtime context
 ```
 
-`docs/03_PROMPTS/**` and `src/core/prompt_builder.py` belong to the legacy pipeline and are not the active Release 1 prompt system.
+`docs/03_PROMPTS/**` belongs to the legacy prompt asset tree and is not the active Release 1 prompt system. The old `src/core/prompt_builder.py` runtime module was removed during Release 1 cleanup.
 
 ## 4. Legacy Boundary
 
-The old pipeline remains a cleanup candidate until dependency audit and test cleanup are complete:
+The old plan/text/image runtime pipeline was removed during Release 1 cleanup after dependency audit and legacy test cleanup:
 
 ```text
 main.py
@@ -62,10 +62,17 @@ src/core/nodes/safety.py
 src/core/nodes/planning.py
 src/core/nodes/validation.py
 src/core/nodes/content.py
+```
+
+These modules and their legacy tests are no longer part of the active repository runtime. New Stage 1-2 work must use the active components listed above.
+
+The remaining legacy prompt asset tree is handled separately:
+
+```text
 docs/03_PROMPTS/**
 ```
 
-These files are deprecated and must not be used as the model for new Stage 1-2 work. Remove them only after import/test dependency cleanup.
+It is historical/reference material pending docs/assets cleanup and must not receive new Release 1 prompt assets.
 
 ## 5. Target Vision
 
