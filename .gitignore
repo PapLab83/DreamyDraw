@@ -13,6 +13,9 @@ transcripts/
 .idea/
 .DS_Store
 
+# Local personal archive, not part of project source of truth
+docs/_LOCAL_BACKLOG/
+
 # Temporary files
 *.log
 *.tmp
