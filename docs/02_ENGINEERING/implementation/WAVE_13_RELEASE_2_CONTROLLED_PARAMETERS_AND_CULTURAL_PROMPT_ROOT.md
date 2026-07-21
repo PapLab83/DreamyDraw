@@ -288,9 +288,11 @@ Documentation must clearly distinguish the previous Release 1 behavior from the 
 - The migrated pre-cleanup registry contained 43 unique layers. Checkpoint A passed the complete suite: **296 passed**.
 - `MYTH/**` and `SCANDINAVIAN_TALE.md` were then removed together with runtime support and active-support claims. The post-cleanup registry contains 40 unique layers. Checkpoint B passed the complete suite: **302 passed**.
 - Final coverage additionally verifies CLI persistence plus cultural root visibility in prompt context and observability. No automated run uses external LLM or image providers.
-- Final complete suite after documentation and coverage updates: **303 passed in 25.59s**.
+- Final complete suite after post-review corrections: **305 passed in 25.29s**.
 
 Deferred product work: any future `MYTH` mode, Scandinavian style or additional cultural context must be designed as new context-appropriate assets and explicitly added to the allowlist/contracts. Git history is the only backup for the removed assets.
+
+Post-review correction: base and override configs are canonicalized separately before merging, so a later `count` overrides an earlier `output_count` and a later `age` overrides an earlier `target_age` (with the reverse alias directions covered too). Current-looking Stage 2 and seed prompt preparation documents were reconciled with the two active Release 2 truth modes.
 
 ## Definition of Done
 

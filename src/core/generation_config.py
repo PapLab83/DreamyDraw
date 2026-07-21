@@ -37,8 +37,14 @@ def resolve_controlled_generation_config(
     return ControlledGenerationConfig.model_validate(payload)
 
 
-def effective_current_config(current_config: dict[str, Any] | None) -> dict[str, Any]:
-    raw = dict(current_config or {})
+def effective_current_config(
+    current_config: dict[str, Any] | None,
+    override_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build effective config while preserving later-override priority across aliases."""
+    raw = _canonical_config_patch(current_config)
+    if override_config:
+        raw.update(_canonical_config_patch(override_config))
     effective = {
         key: value
         for key, value in raw.items()
@@ -47,6 +53,24 @@ def effective_current_config(current_config: dict[str, Any] | None) -> dict[str,
     controlled = resolve_controlled_generation_config(raw)
     effective.update(controlled.model_dump(mode="json"))
     return effective
+
+
+def _canonical_config_patch(config: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(config or {})
+    patch = {
+        key: value
+        for key, value in raw.items()
+        if key not in CONTROLLED_CONFIG_KEYS
+    }
+    controlled = resolve_controlled_generation_config(raw).model_dump(mode="json")
+    if "output_count" in raw or "count" in raw:
+        patch["output_count"] = controlled["output_count"]
+    if "target_age" in raw or "age" in raw:
+        patch["target_age"] = controlled["target_age"]
+    for key in ("truth_mode", "cultural_context", "utility_mode"):
+        if key in raw:
+            patch[key] = controlled[key]
+    return patch
 
 
 def _enum_or_text(value: Any) -> str:

@@ -1,6 +1,6 @@
 # Seed Prompt Inventory
 
-Статус: временный manifest минимального seed prompt set.
+Статус: актуализированный Release 2 manifest минимального seed prompt set.
 
 Этот документ является навигационным manifest для подготовки seed prompt-базы Stage 1-2. Подробные layer requirements, golden coverage и writer tasks вынесены в соседние временные документы, чтобы inventory не превращался в большой монолит.
 
@@ -56,7 +56,7 @@ Minimum seed groups:
 - `role` must never replace `type`.
 - `SEED_SCOPE.md` is the canonical base for minimum seed coverage.
 - Extra entities may be included only when required by `GOLDEN_SCENARIOS.md` or seed utility topics.
-- `MYTH` is in seed scope.
+- Release 2 seed scope contains only `TRUTH` and `FAIRY_TALE`; `MYTH` and Scandinavian style are deferred and absent from the active `RUSSIAN_FOLK` tree.
 - `CHUKOVSKY_STYLE` is an MVP lookup/reference label and must be written as a stylistic transformation brief, not copying instructions.
 - Stage prompt briefs must be stricter than artistic/content layer briefs.
 

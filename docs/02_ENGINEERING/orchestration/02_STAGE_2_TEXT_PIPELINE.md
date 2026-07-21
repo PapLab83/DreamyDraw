@@ -15,7 +15,7 @@ For each call, `LLMStage2TextExecutor` serializes:
 - `layer_grounding.bodies` — full markdown bodies of active resolved layers and applicable fallbacks;
 - stage inputs and JSON output contract.
 
-This applies to **all** truth modes and layer types resolved in Stage 1 (`TRUTH`, `FAIRY_TALE`, `MYTH`, age, style, entity, utility). TRUTH is the primary acceptance focus; FAIRY_TALE and other modes benefit from the same infrastructure.
+This applies to both Release 2 truth modes and all layer types resolved in Stage 1 (`TRUTH`, `FAIRY_TALE`, age, style, entity, utility). TRUTH is the primary acceptance focus; FAIRY_TALE uses the same infrastructure. `MYTH` is deferred and has no active Release 2 layers.
 
 Full layer bodies are **runtime-only**. They are not persisted in `stage_prompt_context.entries`, session JSON, or trace refs. Durable entries store `body_policy`, layer ids, and hashes only.
 

@@ -1,6 +1,6 @@
 # Seed Prompt Core Layers
 
-Статус: временный detail document для `SEED_PROMPT_INVENTORY.md`.
+Статус: актуализированный Release 2 detail document для `SEED_PROMPT_INVENTORY.md`.
 
 Этот документ описывает content format, truth mode, style/substyle, utility, age и language layers.
 
@@ -23,7 +23,7 @@ Required aliases:
 Required `applies_to`:
 
 - `content_formats: [story]`;
-- `truth_modes: [TRUTH, FAIRY_TALE, MYTH]`;
+- `truth_modes: [TRUTH, FAIRY_TALE]`;
 - `utility_modes: [NARRATIVE, TEACHING]`;
 - `ages: ["3", "5"]`.
 
@@ -40,23 +40,20 @@ Body must define:
 | --- | --- | --- | --- | --- |
 | `TRUTH_BASE` | `truth_mode` | not required | `truth_modes/TRUTH` | Realistic/factual world rules. |
 | `FAIRY_TALE_BASE` | `truth_mode` | not required | `truth_modes/FAIRY_TALE` | Fairy-tale world rules. |
-| `MYTH_BASE` | `truth_mode` | not required | `truth_modes/MYTH` | Gentle mythic/explanatory story rules. |
 
 Base style mapping:
 
 - `TRUTH -> NATURALISTIC_ANIMAL_STORY` or base factual style;
-- `FAIRY_TALE -> RUSSIAN_FOLK_TALE`, `SCANDINAVIAN_TALE` or `CHUKOVSKY_STYLE`;
-- `MYTH -> MYTH_SOFT_BASE`.
+- `FAIRY_TALE -> RUSSIAN_FOLK_TALE` or `CHUKOVSKY_STYLE`.
 
 Required aliases:
 
 - `TRUTH_BASE`: `правдиво`, `реалистично`, `натуралистично`, `как в жизни`, `без сказки`;
 - `FAIRY_TALE_BASE`: `сказка`, `сказочно`, `волшебно`, `как сказку`;
-- `MYTH_BASE`: `миф`, `мифологическая`, `объяснительная сказка`, `как древняя история`.
 
 Body must define:
 
-- ontology constraints: what can be real, fictional, mythic or symbolic;
+- ontology constraints: what can be real, fictional or symbolic;
 - allowed/prohibited animal speech and human-like agency;
 - how to treat soft preferences like "волшебная атмосфера" in `TRUTH`;
 - validator/refiner checks for mode violations.
@@ -67,17 +64,13 @@ Body must define:
 | --- | --- | --- | --- | --- |
 | `NATURALISTIC_ANIMAL_STORY` | `substyle` | not required | `truth_modes/TRUTH/styles/naturalistic` | Calm realistic animal storytelling. |
 | `RUSSIAN_FOLK_TALE` | `substyle` | not required | `truth_modes/FAIRY_TALE/styles/folklore` | Russian folk-tale cadence and imagery. |
-| `SCANDINAVIAN_TALE` | `substyle` | not required | `truth_modes/FAIRY_TALE/styles/folklore` | Quiet northern fairy-tale tone. |
 | `CHUKOVSKY_STYLE` | `substyle` | not required | `truth_modes/FAIRY_TALE/styles/reference_labels` | MVP lookup/reference label for playful rhythmic children's style. |
-| `MYTH_SOFT_BASE` | `substyle` | not required | `truth_modes/MYTH/styles` | Soft mythic tone for sun/wind stories. |
 
 Required aliases:
 
 - `NATURALISTIC_ANIMAL_STORY`: `натуралистично`, `реалистичная история про животных`, `как про настоящих животных`;
 - `RUSSIAN_FOLK_TALE`: `русская народная`, `народная сказка`, `в русском народном стиле`;
-- `SCANDINAVIAN_TALE`: `скандинавская сказка`, `северная сказка`, `тихая сказка`;
 - `CHUKOVSKY_STYLE`: `в стиле Чуковского`, `как у Чуковского`, `чуковский`;
-- `MYTH_SOFT_BASE`: `мифологическая`, `мягкий миф`, `история про солнце`, `история про ветер`.
 
 `CHUKOVSKY_STYLE` requirements:
 

@@ -13,19 +13,37 @@ from src.models.schemas import (
 
 
 def test_session_request_passes_through_and_merges_current_config():
-    request = SessionRequest(raw_text="Сказка про лису", current_config={"count": 1, "tone": "soft"})
+    request = SessionRequest(
+        raw_text="Сказка про лису",
+        current_config={"output_count": 1, "target_age": "5", "tone": "soft"},
+    )
 
-    result = to_session_request(request, current_config={"count": 2, "age": 5})
+    result = to_session_request(request, current_config={"count": 2, "age": 3})
 
     assert result.raw_text == "Сказка про лису"
     assert result.current_config == {
         "tone": "soft",
         "output_count": 2,
-        "target_age": "5",
+        "target_age": "3",
         "truth_mode": "TRUTH",
         "cultural_context": "RUSSIAN_FOLK",
         "utility_mode": "NARRATIVE",
     }
+
+
+def test_later_canonical_overrides_replace_legacy_aliases_too():
+    request = SessionRequest(
+        raw_text="Сказка про лису",
+        current_config={"count": 1, "age": 5},
+    )
+
+    result = to_session_request(
+        request,
+        current_config={"output_count": 2, "target_age": "3"},
+    )
+
+    assert result.current_config["output_count"] == 2
+    assert result.current_config["target_age"] == "3"
 
 
 def test_raw_string_becomes_session_request_raw_text():
@@ -62,6 +80,22 @@ def test_generation_request_maps_legacy_fields_to_compatibility_preferences():
     assert result.current_config["text_style"] == "PLAYFUL"
     assert result.current_config["image_style"] == "WATERCOLOR"
     assert result.current_config["work_mode"] == "check"
+
+
+def test_explicit_config_overrides_generation_request_compatibility_values():
+    request = GenerationRequest(
+        topic="Сказка про лису",
+        count=3,
+        truth_mode=TruthMode.TRUTH,
+    )
+
+    result = to_session_request(
+        request,
+        current_config={"count": 2, "truth_mode": "FAIRY_TALE"},
+    )
+
+    assert result.current_config["output_count"] == 2
+    assert result.current_config["truth_mode"] == "FAIRY_TALE"
 
 
 def test_generation_request_image_style_does_not_create_stage3_or_image_routing_flag():
