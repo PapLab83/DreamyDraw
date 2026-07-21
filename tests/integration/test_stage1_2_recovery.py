@@ -19,8 +19,7 @@ from src.models.schemas import SessionRequest, SessionState
 from src.storage.json_storage import JSONStorage
 from tests.integration.test_stage1_2_graph import FakePipelineExecutor, SUPPORTED_REQUEST
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 
 def test_json_storage_recovery_resumes_after_candidate_generation(tmp_path):
     registry, composer, storage, executor = _deps(tmp_path)

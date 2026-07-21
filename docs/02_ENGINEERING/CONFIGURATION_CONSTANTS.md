@@ -2,7 +2,7 @@
 
 Документ фиксирует целевое состояние конфигурации: все магические значения в активном Stage 1-2 контуре и prompt pipeline должны быть вынесены в именованные константы или настройки.
 
-Status: target/reference. Release 1 actual is text-only Stage 1-2. References to removed legacy `main.py`, `PromptBuilder`, image polling or media constants below are historical cleanup context unless the value is still used by active provider compatibility code.
+Status: current Release 2 configuration reference. References to removed legacy `main.py`, `PromptBuilder`, image polling or media constants below are historical cleanup context unless the value is still used by active provider compatibility code.
 
 ---
 
@@ -78,6 +78,10 @@ The legacy `main.py`, old `Orchestrator`, old `PromptBuilder` and old plan/text/
 class Settings(BaseSettings):
     DEFAULT_COUNT: int = 3
     MAX_COUNT: int = 10
+    DEFAULT_TARGET_AGE: str = "5"
+    DEFAULT_TRUTH_MODE: str = "TRUTH"
+    DEFAULT_CULTURAL_CONTEXT: str = "RUSSIAN_FOLK"
+    DEFAULT_UTILITY_MODE: str = "NARRATIVE"
 
     TARGET_AGE_MIN: int = 3
     TARGET_AGE_MAX: int = 5

@@ -6,6 +6,8 @@
 
 Документ описывает структуру `.md` prompt layer. Эта структура нужна не только для чтения человеком: YAML metadata должна парситься детерминированно и использоваться для prompt-aware lookup, preview, fallback и валидации prompt-базы.
 
+Release 2 active files live under `prompts/cultural_contexts/russian_folk/`. Paths in examples below are relative to the selected cultural root.
+
 ---
 
 ## 1. Общий формат
@@ -157,7 +159,7 @@ Prompt body не обязан иметь одинаковую структуру
 | Тип | Пример | Назначение |
 | --- | --- | --- |
 | `format` | `content_formats/story/BASE.md` | Форма результата и общий output contract. |
-| `truth_mode` | `truth_modes/TRUTH/BASE.md` | Правила мира: правда, миф, сказка. |
+| `truth_mode` | `truth_modes/TRUTH/BASE.md` | Правила мира: правда или сказка. |
 | `style` / `substyle` | `truth_modes/FAIRY_TALE/styles/folklore/RUSSIAN_FOLK.md` | Стиль или подстиль внутри режима. |
 | `entity` | `truth_modes/TRUTH/characters/animals/FOX.md` | Сущность, объект, персонаж или явление. |
 | `utility` | `utility/TEACHING/topics/ROAD_SAFETY.md` | Цель результата и обучающий слой. |

@@ -7,7 +7,12 @@ from src.core.interpretation.style_llm_tail import (
 )
 from src.core.prompts.models import MetadataLookupCandidate
 
-PROMPTS_ROOT = __import__("pathlib").Path(__file__).resolve().parents[2] / "prompts"
+PROMPTS_ROOT = (
+    __import__("pathlib").Path(__file__).resolve().parents[2]
+    / "prompts"
+    / "cultural_contexts"
+    / "russian_folk"
+)
 
 
 def test_noop_provider_returns_none():

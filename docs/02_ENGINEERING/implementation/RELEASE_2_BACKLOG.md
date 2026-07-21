@@ -44,12 +44,12 @@ Use these requests as Release 2 regression/diagnostic seeds before redesigning i
 11. `Сделай 3 истории про лису, зайца и белку зимой, чтобы герои не исчезали`
 12. `Сделай историю про бельчонка Тима, он смелый и любит жёлуди, для 5 лет`
 13. `Сделай правдивую историю про попугая какаду для 5 лет`
-14. `Сделай мягкую мифологическую историю про солнце и ветер для ребёнка 5 лет`
+14. `Сделай мягкую мифологическую историю про солнце и ветер для ребёнка 5 лет` — archived regression input; MYTH is unavailable in the active Release 2 root.
 15. `Сделай 2 сказки про лису для 5 лет` - run three times and compare diversity.
 
 ### Product/Engineering Decisions Still Open
 
-- Missing age: keep MVP default `target_age=5` or ask clarification?
+- Controlled-parameter decision closed in Wave 13: defaults are count `3`, age `5`, truth `TRUTH`, cultural context `RUSSIAN_FOLK`, utility `NARRATIVE`; raw text does not override them.
 - Length: define per-age sentence/paragraph/character limits for product acceptance, not just technical post-checks.
 - Cross-session variety: decide whether repeated similar requests need diversity memory, seeding or prompt-level novelty rules.
 - Approved text quality: define user-facing acceptance criteria beyond JSON shape and technical gates.
@@ -59,8 +59,7 @@ Use these requests as Release 2 regression/diagnostic seeds before redesigning i
 
 ### 1. Semantic Resolver And Parameter Extraction
 
-- Standardize parameter extraction across rules, aliases, normalization, fuzzy matching and narrow LLM fallback.
-- Design a full semantic resolver for `truth_mode`, `utility_mode`, age, subjects, styles, substyles, hard details and soft preferences.
+- Keep controlled fields out of semantic extraction; future resolver work is limited to subjects, styles, substyles, setting and free-form details unless product policy changes.
 - Define clarification behavior for ambiguous or unsupported requirements.
 - Keep deterministic behavior testable; real provider calls must remain outside automated tests.
 
@@ -72,7 +71,7 @@ Status: pending architecture decision.
 - Separate animal/entity constraints from style/substyle constraints where useful.
 - Decide whether Russian folk specificity belongs in animal layers, style layers or a dedicated substyle layer.
 - Simplify the generation prompt if diagnostics show overload.
-- Keep `prompts/**/*.md` as the active prompt asset root; legacy `docs/03_PROMPTS/**` assets were removed from the active tree during Release 1 cleanup.
+- Active assets live under `prompts/cultural_contexts/russian_folk/**/*.md`; the selected cultural tree is the registry root.
 
 Prompt-quality inputs extracted from prompt-preparation drafts:
 

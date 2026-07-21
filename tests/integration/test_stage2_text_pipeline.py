@@ -21,7 +21,7 @@ from src.models.schemas import SessionState
 from src.storage.json_storage import JSONStorage
 from tests.helpers.compliant_story_text import COMPLIANT_STORY_TEXT, compliant_story_text
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 SUPPORTED_REQUEST = "Сделай сказку про лису для 5 лет и научи безопасности на дороге"
 REQUIRED_GATES = {
     "safety",

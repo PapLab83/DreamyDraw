@@ -75,6 +75,7 @@ def test_lenient_executor_fairy_tale_fox_still_allows_fairy_framing(tmp_path):
         tmp_path,
         "Сделай 1 сказочную историю про лису для 5 лет.",
         count=1,
+        truth_mode="FAIRY_TALE",
         executor=executor,
     )
     session = result.session

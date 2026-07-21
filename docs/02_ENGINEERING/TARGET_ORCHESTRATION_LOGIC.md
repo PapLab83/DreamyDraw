@@ -6,7 +6,11 @@
 
 Документ описывает целевую логику работы оркестратора с точки зрения пользовательского сценария, подготовки параметров генерации, принятия решений системой, взаимодействия с пользователем и последовательной подготовки итогового результата.
 
-Статус: target/reference document. It is not a Release 1 acceptance checklist. Release 1 implements a Stage 1-2 text-only subset ending at `approved_texts`; future visual stages and richer semantic resolution are tracked separately in `implementation/RELEASE_2_BACKLOG.md`.
+Статус: target/reference document. Release 2 implements a Stage 1-2 text-only subset ending at `approved_texts`; future visual stages and richer semantic resolution are tracked separately in `implementation/RELEASE_2_BACKLOG.md`.
+
+### Release 2 controlled-parameter override
+
+Detailed target sections below still describe a future free-form semantic resolver. The current Release 2 runtime intentionally overrides that part: `output_count`, `target_age`, `truth_mode`, `cultural_context` and `utility_mode` come only from CLI/config/defaults and are never extracted, reconciled or conflict-checked from `raw_text`. Defaults are `3`, `5`, `TRUTH`, `RUSSIAN_FOLK`, `NARRATIVE`; count range is `1..10`. `cultural_context` selects `prompts/cultural_contexts/russian_folk/` before registry loading and is not a prompt layer. Active truth modes are `TRUTH` and `FAIRY_TALE`.
 
 Документ фиксирует не техническую реализацию LangGraph-графа, а логическую модель продукта:
 
@@ -559,17 +563,17 @@ content_format = story
       {
         "type": "content_format",
         "id": "CONTENT_FORMAT_STORY",
-        "source": "docs/03_PROMPTS/content_formats/story/BASE.md"
+        "source": "prompts/cultural_contexts/russian_folk/content_formats/story/BASE.md"
       },
       {
         "type": "truth_mode",
         "id": "TRUTH_BASE",
-        "source": "docs/03_PROMPTS/truth_modes/TRUTH/BASE.md"
+        "source": "prompts/cultural_contexts/russian_folk/truth_modes/TRUTH/BASE.md"
       },
       {
         "type": "entity",
         "id": "TRUTH_ANIMAL_HEDGEHOG",
-        "source": "docs/03_PROMPTS/truth_modes/TRUTH/characters/animals/HEDGEHOG.md"
+        "source": "prompts/cultural_contexts/russian_folk/truth_modes/TRUTH/characters/animals/HEDGEHOG.md"
       }
     ],
     "fallback_layers": [],
@@ -655,7 +659,7 @@ Process/session metadata первого этапа хранится отдель
     {
       "type": "entity",
       "id": "TRUTH_ANIMAL_PARROT",
-      "source": "docs/03_PROMPTS/truth_modes/TRUTH/characters/animals/PARROT.md"
+      "source": "prompts/cultural_contexts/russian_folk/truth_modes/TRUTH/characters/animals/PARROT.md"
     }
   ],
   "fallback_layers": [],

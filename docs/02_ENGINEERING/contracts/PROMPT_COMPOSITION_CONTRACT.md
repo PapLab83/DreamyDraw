@@ -29,6 +29,8 @@ Prompt composition отвечает на вопрос:
 * `soft_preferences`;
 * stage-specific contract.
 
+`cultural_context` уже использован для выбора `PromptRegistry` root до composition. Он остаётся в normalized summary и trace, но не добавляется как отдельный prompt layer/body.
+
 На выходе:
 
 ```text

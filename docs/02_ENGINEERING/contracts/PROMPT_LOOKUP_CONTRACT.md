@@ -6,6 +6,8 @@
 
 Документ описывает, как система сопоставляет пользовательский запрос и нормализованные параметры с prompt-базой.
 
+До любого lookup Release 2 сопоставляет `cultural_context=RUSSIAN_FOLK` с allowlisted root `prompts/cultural_contexts/russian_folk/` и создаёт registry только из этого дерева. `cultural_context` не является prompt layer. Unknown context отклоняется до Stage 2.
+
 Проще:
 
 ```text

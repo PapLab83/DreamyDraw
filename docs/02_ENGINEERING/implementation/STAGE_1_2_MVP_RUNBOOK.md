@@ -207,12 +207,15 @@ venv/bin/pytest -q
 
 ## MVP Product Defaults
 
-Stage 1 applies these defaults when the user request is meaningful but omits explicit values:
+Release 2 builds an effective config from CLI/config and these defaults. `raw_text` never overrides them:
 
 | Parameter | MVP default | Notes |
 |-----------|-------------|-------|
-| `truth_mode` | `TRUTH` | Overridden when the request explicitly asks for сказка, миф, правда and similar signals. |
-| `target_age` | `5` | Seed prompt layers exist only for ages **3** and **5**. No clarification is asked when age is missing. |
+| `output_count` | `3` | Valid range `1..10`. |
+| `truth_mode` | `TRUTH` | Allowed: `TRUTH`, `FAIRY_TALE`. |
+| `target_age` | `5` | Allowed: `3`, `5`. |
+| `cultural_context` | `RUSSIAN_FOLK` | Selects the only Release 2 prompt root. |
+| `utility_mode` | `NARRATIVE` | Allowed: `NARRATIVE`, `TEACHING`. |
 
 Release 2 backlog and known product/code gaps: `RELEASE_2_BACKLOG.md`.
 

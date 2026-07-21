@@ -18,8 +18,10 @@ from src.core.nodes.stage1 import (
     unsupported_interrupt_or_stop,
 )
 from src.core.prompts.composer import PromptComposer
+from src.core.prompts.cultural_roots import resolve_cultural_prompt_root
 from src.core.prompts.registry import PromptRegistry
-from src.models.schemas import CompletionStatus, SessionRequest, SessionState
+from src.core.request_adapter import to_session_request
+from src.models.schemas import CompletionStatus, SessionState
 from src.storage.json_storage import JSONStorage
 
 _TERMINAL_STATUSES = {
@@ -52,9 +54,14 @@ class Stage1Runner:
         registry: PromptRegistry | None = None,
         composer: PromptComposer | None = None,
         max_reresolve_attempts: int = 2,
+        cultural_context: str = "RUSSIAN_FOLK",
     ) -> None:
         self.storage = storage or JSONStorage(str(storage_dir))
-        self.prompts_root = Path(prompts_root)
+        self.prompts_root = (
+            registry.root
+            if registry is not None
+            else resolve_cultural_prompt_root(prompts_root, cultural_context)
+        )
         self.registry = registry or PromptRegistry.load(self.prompts_root)
         self.composer = composer or PromptComposer(self.registry)
         self.max_reresolve_attempts = max_reresolve_attempts
@@ -64,12 +71,7 @@ class Stage1Runner:
         raw_text: str,
         current_config: dict[str, Any] | None = None,
     ) -> Stage1RunResult:
-        session = SessionState(
-            request=SessionRequest(
-                raw_text=raw_text,
-                current_config=current_config or {},
-            )
-        )
+        session = SessionState(request=to_session_request(raw_text, current_config=current_config))
         return self.run(session)
 
     def resume(self, session_id: str, resume_value: Any) -> Stage1RunResult:

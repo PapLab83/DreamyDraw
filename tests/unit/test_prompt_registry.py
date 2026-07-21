@@ -4,13 +4,15 @@ import pytest
 
 from src.core.prompts.registry import PromptRegistry, PromptRegistryError
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 
 def test_registry_loads_all_seed_prompts_and_builds_indexes():
     registry = PromptRegistry.load(PROMPTS_ROOT)
 
-    assert len(registry) == 43
+    assert len(registry) == 40
+    assert "MYTH_BASE" not in registry.layers_by_id
+    assert "MYTH_SOFT_BASE" not in registry.layers_by_id
+    assert "SCANDINAVIAN_TALE" not in registry.layers_by_id
     assert registry.get("TRUTH_ANIMAL_PARROT").source == (
         "truth_modes/TRUTH/characters/animals/PARROT.md"
     )

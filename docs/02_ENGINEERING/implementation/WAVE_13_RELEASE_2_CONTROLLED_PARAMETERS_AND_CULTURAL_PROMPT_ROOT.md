@@ -1,6 +1,6 @@
 # Wave 13 Task — Release 2 controlled parameters and cultural prompt root
 
-Status: **approved for implementation planning; code not started**.  
+Status: **implemented; final verification complete**.
 Owner: **Engineering Agent**.  
 Release: **Release 2**.
 
@@ -118,8 +118,8 @@ Do not leave a second loadable copy of the same layer IDs under `prompts/**`.
 
 Remove the following unsupported assets from the active repository tree during this wave:
 
-- `prompts/truth_modes/MYTH/**`;
-- `prompts/truth_modes/FAIRY_TALE/styles/folklore/SCANDINAVIAN_TALE.md`.
+- `prompts/cultural_contexts/russian_folk/truth_modes/MYTH/**`;
+- `prompts/cultural_contexts/russian_folk/truth_modes/FAIRY_TALE/styles/folklore/SCANDINAVIAN_TALE.md`.
 
 Git history is the backup. Do not create a backup directory inside `prompts/**`, because `PromptRegistry` recursively loads Markdown files and an archive there could become active accidentally.
 
@@ -265,20 +265,32 @@ Documentation must clearly distinguish the previous Release 1 behavior from the 
 
 ## Acceptance criteria
 
-- [ ] All five controlled parameters always have canonical effective values.
-- [ ] Approved defaults are `3`, `5`, `TRUTH`, `RUSSIAN_FOLK`, `NARRATIVE`.
-- [ ] Stage 1 does not derive or override any controlled value from `raw_text`.
-- [ ] Invalid explicit values fail before Stage 2.
-- [ ] `cultural_context` selects a single allowlisted prompt root, not a prompt layer.
-- [ ] The active prompt tree lives only under `cultural_contexts/russian_folk/`.
-- [ ] MYTH and Scandinavian prompt assets are absent from the active tree.
-- [ ] State, preview, normalized summary and observability expose the five values.
-- [ ] CLI/config, persistence, root selection and non-override behavior are covered by tests.
-- [ ] Checkpoint A is green after parameter/root migration and before asset cleanup.
-- [ ] Checkpoint B is green after MYTH/Scandinavian cleanup.
-- [ ] Relevant contracts and active documentation match the implementation.
-- [ ] Full automated suite is green without external provider calls.
-- [ ] Final report lists changed files, defaults/validation, test results and deferred product work.
+- [x] All five controlled parameters always have canonical effective values.
+- [x] Approved defaults are `3`, `5`, `TRUTH`, `RUSSIAN_FOLK`, `NARRATIVE`.
+- [x] Stage 1 does not derive or override any controlled value from `raw_text`.
+- [x] Invalid explicit values fail before Stage 2.
+- [x] `cultural_context` selects a single allowlisted prompt root, not a prompt layer.
+- [x] The active prompt tree lives only under `cultural_contexts/russian_folk/`.
+- [x] MYTH and Scandinavian prompt assets are absent from the active tree.
+- [x] State, preview, normalized summary and observability expose the five values.
+- [x] CLI/config, persistence, root selection and non-override behavior are covered by tests.
+- [x] Checkpoint A is green after parameter/root migration and before asset cleanup.
+- [x] Checkpoint B is green after MYTH/Scandinavian cleanup.
+- [x] Relevant contracts and active documentation match the implementation.
+- [x] Full automated suite is green without external provider calls.
+- [x] Final report lists changed files, defaults/validation, test results and deferred product work.
+
+## Implementation report
+
+- Effective config is canonicalized at the request boundary and persisted in `SessionRequest.current_config`; unknown or invalid controlled values fail validation before Stage 2.
+- Stage 1 reads the five controlled values only from the effective config. Conflicting count, age, truth or utility wording in `raw_text` has no control effect.
+- `RUSSIAN_FOLK` resolves through an allowlist to `prompts/cultural_contexts/russian_folk/` before `PromptRegistry` loading. Registry lookup and composition remain scoped to that selected root.
+- The migrated pre-cleanup registry contained 43 unique layers. Checkpoint A passed the complete suite: **296 passed**.
+- `MYTH/**` and `SCANDINAVIAN_TALE.md` were then removed together with runtime support and active-support claims. The post-cleanup registry contains 40 unique layers. Checkpoint B passed the complete suite: **302 passed**.
+- Final coverage additionally verifies CLI persistence plus cultural root visibility in prompt context and observability. No automated run uses external LLM or image providers.
+- Final complete suite after documentation and coverage updates: **303 passed in 25.59s**.
+
+Deferred product work: any future `MYTH` mode, Scandinavian style or additional cultural context must be designed as new context-appropriate assets and explicitly added to the allowlist/contracts. Git history is the only backup for the removed assets.
 
 ## Definition of Done
 

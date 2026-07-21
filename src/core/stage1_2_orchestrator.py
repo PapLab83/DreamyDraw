@@ -10,6 +10,7 @@ from src.core.nodes.stage2 import Stage2TextExecutor
 from src.core.observability import build_root_trace_metadata
 from src.core.pipeline_result import PipelineResult
 from src.core.prompts.composer import PromptComposer
+from src.core.prompts.cultural_roots import resolve_cultural_prompt_root
 from src.core.prompts.registry import PromptRegistry
 from src.core.request_adapter import to_session_request
 from src.models.schemas import GenerationRequest, SessionRequest, SessionState
@@ -30,11 +31,18 @@ class Stage1_2Orchestrator:
         composer: PromptComposer | None = None,
         text_executor: Stage2TextExecutor,
         prompts_root: str | Path = "prompts",
+        cultural_context: str = "RUSSIAN_FOLK",
         shortage_hitl_enabled: bool = False,
         candidate_count: int | None = None,
     ) -> None:
         self.storage = storage
-        self.registry = registry or PromptRegistry.load(Path(prompts_root))
+        self.cultural_context = cultural_context
+        selected_root = (
+            registry.root
+            if registry is not None
+            else resolve_cultural_prompt_root(prompts_root, cultural_context)
+        )
+        self.registry = registry or PromptRegistry.load(selected_root)
         self.composer = composer or PromptComposer(self.registry)
         self.text_executor = text_executor
         self.graph = build_stage1_2_graph(
@@ -52,6 +60,12 @@ class Stage1_2Orchestrator:
         current_config: dict[str, Any] | None = None,
     ) -> SessionState:
         session_request = to_session_request(request, current_config=current_config)
+        request_context = str(session_request.current_config["cultural_context"])
+        if request_context != self.cultural_context:
+            raise ValueError(
+                "Session cultural_context does not match the orchestrator registry: "
+                f"{request_context} != {self.cultural_context}"
+            )
         session = SessionState(request=session_request)
         self.storage.save_session(session)
         return session

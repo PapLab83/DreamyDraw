@@ -8,8 +8,7 @@ from src.models.schemas import SessionState
 from src.storage.json_storage import JSONStorage
 from tests.helpers.compliant_story_text import COMPLIANT_STORY_TEXT
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 REQUIRED_GATES = {
     "safety",
     "truth_fit",
@@ -209,6 +208,9 @@ def run_golden_pipeline(
     request: str,
     *,
     count: int | None = None,
+    target_age: str = "5",
+    truth_mode: str = "TRUTH",
+    utility_mode: str = "NARRATIVE",
     candidate_count: int = 6,
     executor: GoldenStage2Executor | LenientStage2Executor | None = None,
 ):
@@ -219,7 +221,13 @@ def run_golden_pipeline(
         prompts_root=PROMPTS_ROOT,
         candidate_count=candidate_count,
     )
-    current_config = {"count": count} if count is not None else None
+    current_config = {
+        "target_age": target_age,
+        "truth_mode": truth_mode,
+        "utility_mode": utility_mode,
+    }
+    if count is not None:
+        current_config["count"] = count
     session = orchestrator.start_session(request, current_config=current_config)
     return orchestrator.run_pipeline(session.session_id), fake
 
@@ -261,8 +269,6 @@ def _scenario(summary: dict[str, Any]) -> str:
         return "hand_washing"
     if "parrot" in subject_ids:
         return "cockatoo_parrot"
-    if truth_mode == "MYTH":
-        return "myth_nature"
     if "hedgehog" in subject_ids:
         return "truth_hedgehog"
     if "fox" in subject_ids and truth_mode == "TRUTH":
@@ -326,7 +332,6 @@ def _theme_prefix(scenario: str) -> str:
         "truth_hedgehog": "Ёжик зимой",
         "truth_fox": "Лиса в лесу",
         "fairy_fox": "Сказочная лиса",
-        "myth_nature": "Мягкий миф",
         "hand_washing": "Чистые руки",
         "road_safety": "Безопасный переход",
         "stranger_candy": "Правило конфеты",
@@ -353,11 +358,6 @@ def _approved_text(scenario: str, summary: dict[str, Any], *, variant: str) -> s
             "Сказочная лиса в тёплом лесу вежливо разговаривает с ветром. "
             "Ветер отвечает мягко. "
             "Лиса делает добрый выбор."
-        ),
-        "myth_nature": (
-            "Солнце и ветер показаны как образы древней истории. "
-            "Они не объясняют науку буквально. "
-            "Ребёнок слышит мягкий рассказ."
         ),
         "hand_washing": (
             "Ребёнок после прогулки моет руки с мылом. "

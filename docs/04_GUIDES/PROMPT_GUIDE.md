@@ -1,13 +1,13 @@
 # Prompt Guide - DreamyDraw
 
-Status: Release 1 prompt guide.
+Status: Release 2 prompt guide.
 
 ## 1. Active Prompt System
 
-Release 1 uses Markdown prompt layers under:
+Release 2 uses Markdown prompt layers under the selected cultural root:
 
 ```text
-prompts/
+prompts/cultural_contexts/russian_folk/
 ```
 
 The active code path is:
@@ -19,7 +19,7 @@ PromptRegistry
   -> Stage 2 text executor
 ```
 
-Legacy `docs/03_PROMPTS/**` assets were removed during Release 1 cleanup together with the old `PromptBuilder` runtime. Release 1 prompt work belongs only in `prompts/**`.
+`cultural_context` selects the root before `PromptRegistry` is loaded; it is not an additional prompt layer. Release 2 supports only `RUSSIAN_FOLK`. Legacy `docs/03_PROMPTS/**` assets were removed during Release 1 cleanup together with the old `PromptBuilder` runtime.
 
 ## 2. What Prompt Layers Control
 
@@ -41,9 +41,9 @@ The exact file metadata contract is in:
 docs/02_ENGINEERING/contracts/PROMPT_FILE_CONTRACT.md
 ```
 
-## 3. Release 1 Boundary
+## 3. Release 2 Boundary
 
-Release 1 prompt work is text-only and must end at `approved_texts`.
+Release 2 prompt work is text-only and must end at `approved_texts`.
 
 Do not add prompt paths for:
 

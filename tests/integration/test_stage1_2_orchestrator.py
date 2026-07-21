@@ -11,8 +11,7 @@ from tests.integration.test_stage1_2_graph import FakePipelineExecutor, Shortage
 
 pytestmark = pytest.mark.integration
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 
 def test_start_from_raw_string_and_run_to_approved_texts(tmp_path):
     executor = FakePipelineExecutor()

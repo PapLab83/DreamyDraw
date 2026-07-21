@@ -2,10 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.helpers.stage1_2_golden import GoldenStage2Executor, layer_ids, run_golden_pipeline
+from tests.helpers.stage1_2_golden import layer_ids, run_golden_pipeline
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 pytestmark = pytest.mark.integration
 
 
@@ -14,6 +13,8 @@ def test_chukovsky_wave11_request_reaches_approved_texts(tmp_path):
         tmp_path,
         "Сделай 2 сказки про лису для 3 лет в стиле чуковского",
         count=2,
+        target_age="3",
+        truth_mode="FAIRY_TALE",
     )
     session = result.session
 
@@ -29,6 +30,7 @@ def test_chukovsky_typo_reaches_approved_texts(tmp_path):
         tmp_path,
         "3 сказки про лису как у чуйковкого для 5 лет",
         count=1,
+        truth_mode="FAIRY_TALE",
     )
     session = result.session
 

@@ -9,8 +9,21 @@ from src.config.settings import settings
 
 class TruthMode(str, Enum):
     TRUTH = "Правда"
-    MYTH = "Миф"
     FAIRY_TALE = "Сказка"
+
+
+class ControlledTruthMode(str, Enum):
+    TRUTH = "TRUTH"
+    FAIRY_TALE = "FAIRY_TALE"
+
+
+class UtilityMode(str, Enum):
+    NARRATIVE = "NARRATIVE"
+    TEACHING = "TEACHING"
+
+
+class CulturalContext(str, Enum):
+    RUSSIAN_FOLK = "RUSSIAN_FOLK"
 
 
 class TextStyle(str, Enum):
@@ -69,6 +82,16 @@ class SessionRequest(BaseModel):
     user_context: SessionRequestUserContext = Field(default_factory=SessionRequestUserContext)
 
 
+class ControlledGenerationConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_count: int = Field(default=settings.DEFAULT_COUNT, ge=1, le=settings.MAX_COUNT)
+    target_age: Literal["3", "5"] = settings.DEFAULT_TARGET_AGE
+    truth_mode: ControlledTruthMode = ControlledTruthMode(settings.DEFAULT_TRUTH_MODE)
+    cultural_context: CulturalContext = CulturalContext(settings.DEFAULT_CULTURAL_CONTEXT)
+    utility_mode: UtilityMode = UtilityMode(settings.DEFAULT_UTILITY_MODE)
+
+
 class GenerationRequest(BaseModel):
     """Deprecated compatibility request for the old CLI/API entrypoint."""
 
@@ -118,6 +141,8 @@ class ExecutionPromptContext(NormalizedPromptContext):
     snapshot_hash: Optional[str] = None
     body_policy: str = "metadata_only"
     version: Optional[str] = None
+    cultural_context: Optional[str] = None
+    prompt_root: Optional[str] = None
 
 
 class StagePromptContextEntry(BaseModel):
@@ -193,11 +218,12 @@ class SubjectContinuityPolicy(BaseModel):
 
 class NormalizedRequest(BaseModel):
     content_format: str = "story"
-    truth_mode: Optional[str] = None
-    utility_mode: Optional[str] = None
+    truth_mode: str = settings.DEFAULT_TRUTH_MODE
+    utility_mode: str = settings.DEFAULT_UTILITY_MODE
     utility_topic: Optional[str] = None
-    target_age: Optional[str] = None
+    target_age: str = settings.DEFAULT_TARGET_AGE
     output_count: int = settings.DEFAULT_COUNT
+    cultural_context: str = settings.DEFAULT_CULTURAL_CONTEXT
     audience_language: str = "ru"
     result_language: str = "ru"
     current_config: Dict[str, Any] = Field(default_factory=dict)

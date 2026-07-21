@@ -18,14 +18,18 @@ from src.models.schemas import (
     SessionState,
 )
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 
 def test_input_analysis_maps_russian_request_and_clears_resume():
     session = SessionState(
         request=SessionRequest(
             raw_text="Сделай сказку про лису для 5 лет",
-            current_config={"count": 2},
+            current_config={
+                "count": 2,
+                "target_age": "5",
+                "truth_mode": "FAIRY_TALE",
+                "utility_mode": "TEACHING",
+            },
         )
     )
     state = to_graph_state(session)
@@ -45,6 +49,7 @@ def test_input_analysis_maps_russian_request_and_clears_resume():
     assert normalized.utility_topic == "ROAD_SAFETY"
     assert normalized.target_age == "5"
     assert normalized.output_count == 2
+    assert normalized.cultural_context == "RUSSIAN_FOLK"
     assert normalized.audience_language == "ru"
     assert normalized.result_language == "ru"
     assert normalized.main_subject == "fox"
@@ -74,6 +79,24 @@ def test_metadata_lookup_writes_only_lookup_hints():
     assert hints["subjects"][0]["layer_id"] == "FAIRY_TALE_ANIMAL_FOX"
     assert session.normalized_request.prompt_context.model_dump() == before_normalized_context
     assert session.prompt_context.model_dump() == before_top_context
+
+
+def test_input_analysis_does_not_extract_controlled_parameters_from_raw_text():
+    session = SessionState(
+        request=SessionRequest(
+            raw_text="Сделай 2 сказки про лису для 3 лет, поучительные",
+            current_config={},
+        )
+    )
+
+    normalized = input_analysis(to_graph_state(session))["session"].normalized_request
+
+    assert normalized.output_count == 3
+    assert normalized.target_age == "5"
+    assert normalized.truth_mode == "TRUTH"
+    assert normalized.utility_mode == "NARRATIVE"
+    assert normalized.cultural_context == "RUSSIAN_FOLK"
+    assert normalized.main_subject == "fox"
 
 
 def test_request_classification_marks_complete_request():
@@ -316,6 +339,8 @@ def test_prompt_context_preparation_copies_verifies_and_creates_stage_entry():
     assert session.prompt_context.source_hash == registry.registry_hash
     assert session.prompt_context.snapshot_hash
     assert session.prompt_context.body_policy == "metadata_only"
+    assert session.prompt_context.cultural_context == "RUSSIAN_FOLK"
+    assert session.prompt_context.prompt_root == registry.root.as_posix()
     assert session.interpretation_state.execution_lookup_result.status == "pass"
     assert len(session.stage_prompt_context.entries) == 1
     entry = session.stage_prompt_context.entries[0]
@@ -343,7 +368,12 @@ def _analyzed_session() -> SessionState:
     session = SessionState(
         request=SessionRequest(
             raw_text="Сделай сказку про лису для 5 лет и научи безопасности на дороге",
-            current_config={"count": 2},
+            current_config={
+                "count": 2,
+                "target_age": "5",
+                "truth_mode": "FAIRY_TALE",
+                "utility_mode": "TEACHING",
+            },
         )
     )
     return input_analysis(to_graph_state(session))["session"]

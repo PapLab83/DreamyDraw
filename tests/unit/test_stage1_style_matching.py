@@ -3,13 +3,12 @@ from pathlib import Path
 import pytest
 
 from src.core.graph.state import to_graph_state
-from src.core.interpretation.style_phrases import extract_style_phrases
 from src.core.interpretation.style_llm_tail import (
-    HeuristicStyleLlmTailProvider,
     ScriptedStyleLlmTailProvider,
     pick_style_layer_with_llm_tail,
 )
 from src.core.interpretation.style_match import resolve_style_from_text
+from src.core.interpretation.style_phrases import extract_style_phrases
 from src.core.interpretation.text_normalize import normalize_lookup_phrase
 from src.core.nodes.stage1 import (
     candidate_layer_resolution,
@@ -21,8 +20,7 @@ from src.core.prompts.lookup import match_style_substyle_layers
 from src.core.prompts.registry import PromptRegistry
 from src.models.schemas import SessionRequest, SessionState
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 
 @pytest.fixture
 def registry() -> PromptRegistry:
@@ -96,7 +94,7 @@ def test_input_analysis_wires_chukovsky_substyle(registry):
     session = SessionState(
         request=SessionRequest(
             raw_text="Сделай 2 сказки про лису для 3 лет в стиле чуковского",
-            current_config={"count": 2},
+            current_config={"count": 2, "truth_mode": "FAIRY_TALE", "target_age": "3"},
         )
     )
 
@@ -112,7 +110,7 @@ def test_chukovsky_resolves_to_layer_in_candidate_resolution(registry):
     session = SessionState(
         request=SessionRequest(
             raw_text="Сделай сказку про лису для 5 лет в стиле чуковского",
-            current_config={"count": 1},
+            current_config={"count": 1, "truth_mode": "FAIRY_TALE"},
         )
     )
     state = input_analysis(to_graph_state(session), registry)
@@ -159,7 +157,7 @@ def test_input_analysis_resolves_chukovsky_typo(registry):
     session = SessionState(
         request=SessionRequest(
             raw_text="3 сказки про лису как у чуйковкого для 5 лет",
-            current_config={"count": 3},
+            current_config={"count": 3, "truth_mode": "FAIRY_TALE"},
         )
     )
 
@@ -184,7 +182,7 @@ def test_fairy_tale_fox_remains_character(registry):
     session = SessionState(
         request=SessionRequest(
             raw_text="2 сказки про лису для 5 лет",
-            current_config={"count": 2},
+            current_config={"count": 2, "truth_mode": "FAIRY_TALE"},
         )
     )
 

@@ -231,7 +231,7 @@ def entry_point_from_session(state: GraphState) -> str:
         return route_after_request_classification(state)
     if session.interpretation_state.lookup_hints:
         return NODE_REQUEST_CLASSIFICATION
-    if session.normalized_request.truth_mode or session.normalized_request.main_subject:
+    if session.normalized_request.main_subject:
         return NODE_METADATA_LOOKUP
     return NODE_INPUT_ANALYSIS
 

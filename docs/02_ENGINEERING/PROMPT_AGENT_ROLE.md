@@ -16,13 +16,15 @@
 
 | Параметр | Смысл для промптов |
 |----------|-------------------|
-| `truth_mode` | Правда / Миф / Сказка — разный мир (речь животных, магия, тон) |
+| `truth_mode` | `TRUTH` / `FAIRY_TALE` — разный мир (речь животных, магия, тон); MYTH отложен |
 | `utility_mode` | История vs обучение — нужна ли явная teaching goal |
 | `target_age` | 3 или 5 — длина, словарь, сложность фраз и вопросов |
 | `output_count` | Сколько approved текстов |
 | `subjects` / entity layers | Лиса, ёж и т.д. — species/character constraints |
 | `substyle` | Например `RUSSIAN_FOLK_TALE` — интонация и форма |
 | `hard_details` / `unresolved_details` | Жёсткие и свободные детали запроса |
+
+В Release 2 `output_count`, `target_age`, `truth_mode`, `cultural_context` и `utility_mode` приходят только из CLI/config/defaults. Prompt Agent не должен ожидать, что Stage 1 извлечёт их из `raw_text`. Активный культурный контекст — только `RUSSIAN_FOLK`.
 
 **Зачем промпты:** не «красивый текст ради красоты», а **возрастно-безопасный, режимно-правильный** результат, согласованный с оркестрацией и downstream gates (validator, refiner, length post-check).
 
@@ -56,7 +58,7 @@
 
 | Область | Действия |
 |---------|----------|
-| **Prompt assets** | Редактировать `prompts/**/*.md` |
+| **Prompt assets** | Редактировать `prompts/cultural_contexts/russian_folk/**/*.md` |
 | **Composition (понимание)** | Объяснять сборку runtime prompt: layers, bodies, stage profile, task |
 | **Hot start analysis** | Разбирать `output/stage1_2_mvp/<session>/debug/llm/001_candidate_text_generator.json` |
 | **Layer interaction** | Как AGE_3 + FAIRY_TALE_BASE + RUSSIAN_FOLK_TALE + FOX влияют на generator |
@@ -97,8 +99,8 @@ normalized_request_summary
 ## 4. Карта prompt assets
 
 ```text
-prompts/
-├── truth_modes/          # TRUTH / FAIRY_TALE / MYTH: BASE, entities, styles
+prompts/cultural_contexts/russian_folk/
+├── truth_modes/          # TRUTH / FAIRY_TALE: BASE, entities, styles
 ├── ages/                 # AGE_3, AGE_5
 ├── utility_modes/        # NARRATIVE, TEACHING, topics
 ├── stage_profiles/text_pipeline/   # STAGE_* (generator, scorer, …)
@@ -123,10 +125,10 @@ prompts/
 
 ### Stage profiles и validator/refiner (по задаче)
 
-- `prompts/stage_profiles/text_pipeline/CANDIDATE_TEXT_GENERATOR.md` — hot start
-- `prompts/stage_profiles/text_pipeline/SCORER.md`
-- `prompts/validators/text_pipeline/CANDIDATE_TEXT.md`
-- `prompts/refiners/text_pipeline/CANDIDATE_TEXT.md`
+- `prompts/cultural_contexts/russian_folk/stage_profiles/text_pipeline/CANDIDATE_TEXT_GENERATOR.md` — hot start
+- `prompts/cultural_contexts/russian_folk/stage_profiles/text_pipeline/SCORER.md`
+- `prompts/cultural_contexts/russian_folk/validators/text_pipeline/CANDIDATE_TEXT.md`
+- `prompts/cultural_contexts/russian_folk/refiners/text_pipeline/CANDIDATE_TEXT.md`
 
 ### Обзорно (не source of truth для MVP)
 
@@ -239,10 +241,10 @@ Debug: output/stage1_2_mvp/<session>/debug/llm/001_candidate_text_generator.json
 
 Точечно улучшены промпты:
 
-- `prompts/truth_modes/FAIRY_TALE/characters/animals/FOX.md`
-- `prompts/truth_modes/FAIRY_TALE/styles/folklore/RUSSIAN_FOLK_TALE.md`
-- `prompts/truth_modes/FAIRY_TALE/BASE.md`
-- `prompts/truth_modes/TRUTH/characters/animals/FOX.md` (отдельно, для режима Правда)
+- `prompts/cultural_contexts/russian_folk/truth_modes/FAIRY_TALE/characters/animals/FOX.md`
+- `prompts/cultural_contexts/russian_folk/truth_modes/FAIRY_TALE/styles/folklore/RUSSIAN_FOLK_TALE.md`
+- `prompts/cultural_contexts/russian_folk/truth_modes/FAIRY_TALE/BASE.md`
+- `prompts/cultural_contexts/russian_folk/truth_modes/TRUTH/characters/animals/FOX.md` (отдельно, для режима Правда)
 
 После этого **generator (hot start) сильно улучшился**, но для цели «по-настоящему живые» текстов **одних этих правок недостаточно** — возможны доработки промптов (в т.ч. опции выше) и отдельно правки pipeline (Engineering).
 

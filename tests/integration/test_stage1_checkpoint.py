@@ -6,7 +6,7 @@ from src.core.stage1_runner import Stage1Runner
 from src.models.schemas import SessionRequest, SessionState
 from src.storage.json_storage import JSONStorage
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "run_stage1_preview.py"
 SUPPORTED_REQUEST = "Сделай сказку про лису для 5 лет и научи безопасности на дороге"
 
@@ -14,7 +14,15 @@ SUPPORTED_REQUEST = "Сделай сказку про лису для 5 лет �
 def test_successful_stage1_checkpoint(tmp_path):
     runner = Stage1Runner(storage=JSONStorage(str(tmp_path)), prompts_root=PROMPTS_ROOT)
 
-    result = runner.start(SUPPORTED_REQUEST, current_config={"count": 2})
+    result = runner.start(
+        SUPPORTED_REQUEST,
+        current_config={
+            "count": 2,
+            "truth_mode": "FAIRY_TALE",
+            "utility_mode": "TEACHING",
+            "target_age": "5",
+        },
+    )
 
     assert result.is_stage1_ready is True
     assert result.is_waiting_user is False

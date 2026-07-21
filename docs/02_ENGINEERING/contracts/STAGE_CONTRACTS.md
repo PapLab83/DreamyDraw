@@ -471,6 +471,7 @@ Safe fallback eligibility:
 * `utility_mode`;
 * `utility_topic`;
 * `target_age`;
+* `cultural_context`;
 * `main_subject`;
 * required `subjects`;
 * `is_character`;

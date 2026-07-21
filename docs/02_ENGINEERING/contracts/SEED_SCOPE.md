@@ -26,7 +26,6 @@ Seed prompts нужны не для полного покрытия будуще
 truth_modes/
   TRUTH
   FAIRY_TALE
-  MYTH
 ```
 
 Для каждого режима нужен:

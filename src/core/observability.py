@@ -31,6 +31,8 @@ def build_root_trace_metadata(session: SessionState) -> dict[str, Any]:
             "validation_attempts": session.pipeline_counters.validation_attempts,
             "refinement_attempts": session.pipeline_counters.refinement_attempts,
             "prompt_context_hash": session.prompt_context.snapshot_hash,
+            "cultural_context": session.normalized_request.cultural_context,
+            "prompt_root": session.prompt_context.prompt_root,
         }
     )
 
@@ -171,6 +173,8 @@ def _prompt_metadata(session: SessionState, node_name: str) -> dict[str, Any]:
         "source_prompt_context_hash": entry.source_prompt_context_hash if entry else session.prompt_context.source_hash,
         "stage_context_hash": entry.stage_context_hash if entry else None,
         "body_policy": entry.body_policy if entry else session.prompt_context.body_policy,
+        "cultural_context": session.prompt_context.cultural_context,
+        "prompt_root": session.prompt_context.prompt_root,
     }
 
 
@@ -209,6 +213,7 @@ def _normalized_summary(session: SessionState) -> dict[str, Any]:
         "truth_mode": request.truth_mode,
         "utility_mode": request.utility_mode,
         "target_age": request.target_age,
+        "cultural_context": request.cultural_context,
         "main_subject": request.main_subject,
         "output_count": request.output_count,
     }

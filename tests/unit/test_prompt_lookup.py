@@ -3,8 +3,7 @@ from pathlib import Path
 from src.core.prompts.lookup import execute_prompt_lookup, lookup_prompt_metadata
 from src.core.prompts.registry import PromptRegistry
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 
 def test_metadata_lookup_finds_alias_candidate_without_body():
     registry = PromptRegistry.load(PROMPTS_ROOT)

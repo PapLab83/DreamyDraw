@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Дефолтные значения
     DEFAULT_COUNT: int = constants.DEFAULT_COUNT
     MAX_COUNT: int = constants.MAX_COUNT
+    DEFAULT_TARGET_AGE: str = constants.DEFAULT_TARGET_AGE
+    DEFAULT_TRUTH_MODE: str = constants.DEFAULT_TRUTH_MODE
+    DEFAULT_CULTURAL_CONTEXT: str = constants.DEFAULT_CULTURAL_CONTEXT
+    DEFAULT_UTILITY_MODE: str = constants.DEFAULT_UTILITY_MODE
 
     # Продуктовые лимиты
     TARGET_AGE_MIN: int = constants.TARGET_AGE_MIN

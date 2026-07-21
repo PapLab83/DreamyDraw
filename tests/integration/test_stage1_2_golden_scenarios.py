@@ -19,6 +19,7 @@ def test_truth_hedgehog_winter_stories_reach_approved_texts(tmp_path):
         tmp_path,
         "Сделай 2 правдивые короткие истории про ёжика зимой в лесу для ребёнка 3 лет.",
         count=2,
+        target_age="3",
     )
     session = result.session
 
@@ -42,6 +43,7 @@ def test_fairy_tale_fox_stories_allow_fairy_tale_behavior(tmp_path):
         tmp_path,
         "Сделай 2 сказочные истории про лису для 5 лет.",
         count=2,
+        truth_mode="FAIRY_TALE",
     )
     session = result.session
 
@@ -54,7 +56,7 @@ def test_fairy_tale_fox_stories_allow_fairy_tale_behavior(tmp_path):
     assert all(result.validation_status == "accepted" for result in session.approved_texts)
 
 
-def test_gentle_myth_about_sun_and_wind_preserves_freeform_nature_subject(tmp_path):
+def test_myth_wording_does_not_override_controlled_truth_mode(tmp_path):
     result, _ = run_golden_pipeline(
         tmp_path,
         "Сделай мягкую мифологическую историю про солнце и ветер для ребёнка 5 лет.",
@@ -63,14 +65,14 @@ def test_gentle_myth_about_sun_and_wind_preserves_freeform_nature_subject(tmp_pa
     session = result.session
 
     assert result.is_done
-    assert session.normalized_request.truth_mode == "MYTH"
+    assert session.normalized_request.truth_mode == "TRUTH"
     assert session.normalized_request.utility_mode == "NARRATIVE"
     assert session.normalized_request.target_age == "5"
-    assert {"MYTH_BASE", "MYTH_SOFT_BASE", "UTILITY_NARRATIVE_BASE", "AGE_5"} <= layer_ids(session)
+    assert {"TRUTH_BASE", "UTILITY_NARRATIVE_BASE", "AGE_5"} <= layer_ids(session)
+    assert "MYTH_BASE" not in layer_ids(session)
     assert {"солнце", "ветер"} <= unresolved_labels(session)
     text = approved_text(session).casefold()
-    assert "образ" in text
-    assert "не объясняют науку" in text
+    assert text
 
 
 def test_teaching_truth_story_about_hand_washing_keeps_hygiene_points(tmp_path):
@@ -78,6 +80,7 @@ def test_teaching_truth_story_about_hand_washing_keeps_hygiene_points(tmp_path):
         tmp_path,
         "Сделай поучительную правдивую историю про мытьё рук после прогулки.",
         count=1,
+        utility_mode="TEACHING",
     )
     session = result.session
 
@@ -98,6 +101,8 @@ def test_teaching_fairy_tale_about_road_crossing_preserves_safety(tmp_path):
         tmp_path,
         "Сделай поучительную сказку про переход через дорогу для 5 лет.",
         count=1,
+        truth_mode="FAIRY_TALE",
+        utility_mode="TEACHING",
     )
     session = result.session
 
@@ -118,6 +123,7 @@ def test_stranger_and_candy_story_rejects_unsafe_candidate(tmp_path):
         tmp_path,
         "Сделай поучительную историю про незнакомца и конфету для ребёнка 5 лет.",
         count=1,
+        utility_mode="TEACHING",
     )
     session = result.session
 

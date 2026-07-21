@@ -22,12 +22,14 @@
   "utility_topic": null,
   "target_age": "3",
   "output_count": 5,
+  "cultural_context": "RUSSIAN_FOLK",
   "audience_language": "ru",
   "result_language": "ru",
   "current_config": {
     "truth_mode": "TRUTH",
     "utility_mode": "NARRATIVE",
     "target_age": "3",
+    "cultural_context": "RUSSIAN_FOLK",
     "text_style_base": "calm",
     "image_style": "cartoon"
   },
@@ -98,11 +100,12 @@
 | Поле | Смысл |
 | --- | --- |
 | `content_format` | Формат результата: на MVP основной формат `story`. |
-| `truth_mode` | Режим отношения к реальности: `TRUTH`, `MYTH`, `FAIRY_TALE`. |
+| `truth_mode` | Режим отношения к реальности: `TRUTH` или `FAIRY_TALE`. MYTH не поддерживается в Release 2. |
 | `utility_mode` | Цель результата: `NARRATIVE`, `TEACHING`, позже `ENGLISH`. |
 | `utility_topic` | Конкретная teaching/practical тема, если есть: например `hygiene_handwashing`, `road_crossing`, `stranger_candy_safety`; иначе `null`. |
-| `target_age` | Возрастной профиль: на MVP seed layers только для `3` и `5`. Если возраст не указан в запросе, Stage 1 ставит `5` без clarification. |
+| `target_age` | Возрастной профиль: `3` или `5`; default `5`. |
 | `output_count` | Сколько итоговых approved texts нужно пользователю. |
+| `cultural_context` | Canonical культурный root selector. Release 2: только `RUSSIAN_FOLK`. |
 | `audience_language` | Язык общения с пользователем. На старте `ru`. |
 | `result_language` | Язык результата. На старте `ru`. |
 | `current_config` | Настройки, с которыми пользователь пришёл в запрос. |
@@ -119,7 +122,7 @@
 | `visual_preferences` | Настройки для будущего визуального этапа. Text pipeline их сохраняет, но не обязан использовать. |
 | `prompt_context` | Результат prompt lookup и candidate layer resolution. |
 
-`current_config` и `user_context` используются как источники дефолтов и подсказок для интерпретации. Явный текущий запрос пользователя имеет приоритет над ними; если система хочет изменить уже выбранную настройку из-за смысла запроса, это должно проходить через clarification/arbitration, а не через молчаливую замену.
+В Release 2 `output_count`, `target_age`, `truth_mode`, `cultural_context` и `utility_mode` всегда заполнены из CLI/config/defaults. `raw_text` не участвует в их извлечении, переопределении, reconciliation или conflict-check. Defaults: `3`, `5`, `TRUTH`, `RUSSIAN_FOLK`, `NARRATIVE`; `output_count` валиден в диапазоне `1..10`.
 
 `utility_topic` фиксирует конкретную прикладную тему только тогда, когда она действительно извлечена из запроса или выбрана после clarification. Если `utility_mode = TEACHING` и prompt lookup нашёл подходящий topic layer, `utility_topic` должен быть заполнен, а соответствующий слой должен попасть в `prompt_context.resolved_layers` с `type = "utility"` и `role = "utility_topic"`. Если подходящий слой не найден, тема остаётся в `prompt_context.unresolved_details` или требует clarification/fallback по правилам оркестрации.
 
@@ -190,7 +193,7 @@ interpretation_state / preview_state
 | `role` | Роль в результате: `main`, `secondary`, `context`. |
 | `is_character` | Является ли сущность устойчивым персонажем. |
 
-**MVP (Stage 1 actual):** при `truth_mode = TRUTH` животное из запроса («про лису») по умолчанию **`is_character = false`** (subject/тема, не герой). `is_character = true` — только при явных маркерах: имя, «герой/персонаж/зовут», «маленький \<species\>» + trait (например бельчонок Тим). В `FAIRY_TALE` / `MYTH` животные могут оставаться `is_character = true` по умолчанию.
+**MVP (Stage 1 actual):** при `truth_mode = TRUTH` животное из запроса («про лису») по умолчанию **`is_character = false`** (subject/тема, не герой). `is_character = true` — только при явных маркерах: имя, «герой/персонаж/зовут», «маленький \<species\>» + trait (например бельчонок Тим). В `FAIRY_TALE` животные могут оставаться `is_character = true` по умолчанию.
 | `base_species` | Базовый вид или родовая сущность, если применимо. |
 | `resolved_layer_id` | Найденный prompt layer, если он есть. |
 | `unresolved_detail` | Деталь, для которой нет точного слоя. |
@@ -388,4 +391,4 @@ is_character = true
 | `stage_prompt_context.entries` (durable) | No — `body_policy`, layer ids, `stage_context_hash` |
 | Stage 2 LLM prompt payload (`layer_grounding.bodies`) | Yes — runtime only, not persisted |
 
-All resolved modes benefit (TRUTH, FAIRY_TALE, MYTH, age, style, entity). TRUTH additionally uses deterministic post-check after LLM validator accept.
+All resolved modes benefit (TRUTH, FAIRY_TALE, age, style, entity). TRUTH additionally uses deterministic post-check after LLM validator accept.

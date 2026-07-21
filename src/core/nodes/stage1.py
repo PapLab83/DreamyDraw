@@ -6,6 +6,8 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from src.config.settings import settings
+from src.core.generation_config import effective_current_config, resolve_controlled_generation_config
 from src.core.graph.state import GraphState
 from src.core.interpretation.style_match import resolve_style_from_text
 from src.core.prompts.composer import PromptComposer
@@ -31,7 +33,6 @@ _SUPPORTED_LAYER_IDS = {
     "content_format": "CONTENT_FORMAT_STORY",
     "truth_mode:TRUTH": "TRUTH_BASE",
     "truth_mode:FAIRY_TALE": "FAIRY_TALE_BASE",
-    "truth_mode:MYTH": "MYTH_BASE",
     "utility_mode:NARRATIVE": "UTILITY_NARRATIVE_BASE",
     "utility_mode:TEACHING": "UTILITY_TEACHING_BASE",
     "utility_topic:ROAD_SAFETY": "UTILITY_TOPIC_ROAD_SAFETY",
@@ -41,7 +42,6 @@ _SUPPORTED_LAYER_IDS = {
     "age:5": "AGE_5",
     "audience_language": "LANGUAGE_RU_AUDIENCE",
     "result_language": "LANGUAGE_RU_RESULT",
-    "substyle:myth_soft": "MYTH_SOFT_BASE",
     "substyle:naturalistic_animal_story": "NATURALISTIC_ANIMAL_STORY",
     "substyle:russian_folk_tale": "RUSSIAN_FOLK_TALE",
     "substyle:CHUKOVSKY_STYLE": "CHUKOVSKY_STYLE",
@@ -64,10 +64,6 @@ _SUPPORTED_LAYER_IDS = {
     "subject:TRUTH:parrot": "TRUTH_ANIMAL_PARROT",
 }
 
-_FAIRY_TALE_RE = re.compile(r"сказ(?:к|очн)", re.I)
-_TRUTH_RE = re.compile(r"(правдив|реалистич|как в жизни|без сказки)", re.I)
-_MYTH_RE = re.compile(r"(миф|мифологич|древн(?:яя|юю)\s+истори)", re.I)
-_TEACHING_TERMS = ("научи", "объясни", "безопасность", "дорога", "переход", "светофор", "поучительн", "мыть", "рук", "незнаком", "конфет")
 _ROAD_TERMS = ("безопасность", "дорог", "переход", "светофор")
 _HAND_WASHING_TERMS = ("мыть", "мытьё", "мытье", "рук", "мыло", "прогулк")
 _FOX_RE = re.compile(r"\b(лиса|лис|лису|лисой|лисе|лисичка|лисичку|лисица|лисицу)\b", re.I)
@@ -77,7 +73,6 @@ _SQUIRREL_RE = re.compile(r"\b(белка|белку|белки|бельчоно
 _PARROT_RE = re.compile(r"\b(попугай|попугая|какаду)\b", re.I)
 _SUN_RE = re.compile(r"\b(солнце|солнца|солнцу)\b", re.I)
 _WIND_RE = re.compile(r"\b(ветер|ветра|ветру|ветром)\b", re.I)
-_AGE_RE = re.compile(r"(?:для\s*)?([3-9])\s*(?:лет|года|год)?", re.I)
 _UNSUPPORTED_RE = re.compile(
     r"\b(дисней|disney|микки|mickey|человек[- ]?паук|spider[- ]?man|гарри поттер|harry potter)\b",
     re.I,
@@ -103,7 +98,6 @@ _IMPOSSIBLE_VISUAL_RE = re.compile(
 
 _SUBSTYLE_SLUG_TO_LAYER_ID = {
     "russian_folk_tale": "RUSSIAN_FOLK_TALE",
-    "myth_soft": "MYTH_SOFT_BASE",
     "naturalistic_animal_story": "NATURALISTIC_ANIMAL_STORY",
 }
 
@@ -135,7 +129,6 @@ def metadata_lookup(state: GraphState, registry: PromptRegistry) -> GraphState:
         truth_terms = {
             "TRUTH": ["TRUTH", "правдиво"],
             "FAIRY_TALE": ["FAIRY_TALE", "сказка"],
-            "MYTH": ["MYTH", "миф"],
         }
         _hint(hints, "truth_mode", registry, truth_terms.get(request.truth_mode, [request.truth_mode]), type="truth_mode")
     if request.utility_mode:
@@ -426,18 +419,24 @@ def final_parameter_validation(state: GraphState, registry: PromptRegistry) -> G
 
     if request.content_format != "story":
         issues.append("content_format is missing or unsupported")
-    if not request.truth_mode:
-        issues.append("truth_mode is missing")
-    if not request.target_age:
-        issues.append("target_age is missing")
-    if request.output_count < 1:
-        issues.append("output_count must be positive")
+    if request.truth_mode not in {"TRUTH", "FAIRY_TALE"}:
+        issues.append("truth_mode is missing or unsupported")
+    if request.utility_mode not in {"NARRATIVE", "TEACHING"}:
+        issues.append("utility_mode is missing or unsupported")
+    if request.target_age not in {"3", "5"}:
+        issues.append("target_age is missing or unsupported")
+    if request.cultural_context != "RUSSIAN_FOLK":
+        issues.append("cultural_context is missing or unsupported")
+    if not 1 <= request.output_count <= settings.MAX_COUNT:
+        issues.append(f"output_count must be between 1 and {settings.MAX_COUNT}")
     if not request.main_subject or not request.subjects:
         issues.append("main subject is missing")
     if not _has_ref(refs, type_="format", role="content_format"):
         issues.append("content_format layer is missing")
     if request.truth_mode and not _has_ref(refs, type_="truth_mode"):
         issues.append("truth_mode layer is missing")
+    if request.utility_mode and not _has_ref(refs, type_="utility", role="utility_mode"):
+        issues.append("utility_mode layer is missing")
     if request.utility_topic and not _has_ref(refs, type_="utility", role="utility_topic"):
         issues.append("utility_topic layer is missing")
     if not _has_ref(refs, type_="language", role="audience_language"):
@@ -488,6 +487,8 @@ def preview(state: GraphState) -> GraphState:
         pieces.append("главная героиня лиса")
     if request.target_age:
         pieces.append(f"для {request.target_age} лет")
+    pieces.append(f"контекст: {request.cultural_context}")
+    pieces.append(f"режим назначения: {request.utility_mode}")
     if request.utility_topic == "ROAD_SAFETY":
         pieces.append("с мягким обучением безопасности на дороге")
     session.preview_state.preview_text = ", ".join(pieces) + "."
@@ -518,6 +519,8 @@ def prompt_context_preparation(
     )
     frozen_context.body_policy = "metadata_only"
     frozen_context.version = "stage1-v1"
+    frozen_context.cultural_context = session.normalized_request.cultural_context
+    frozen_context.prompt_root = registry.root.as_posix()
     session.prompt_context = frozen_context
 
     envelope = execute_prompt_lookup(
@@ -588,47 +591,31 @@ def _extract_normalized_request(
     *,
     registry: PromptRegistry | None = None,
 ) -> NormalizedRequest:
-    current_config = dict(getattr(session.request, "current_config", {}) or {})
-    output_count = int(
-        getattr(session.request, "count", None)
-        or current_config.get("count")
-        or session.normalized_request.output_count
+    current_config = effective_current_config(
+        dict(getattr(session.request, "current_config", {}) or {})
     )
+    controlled = resolve_controlled_generation_config(current_config)
+    if hasattr(session.request, "current_config"):
+        session.request.current_config = current_config
     normalized = NormalizedRequest(
         content_format="story",
-        output_count=output_count,
+        output_count=controlled.output_count,
+        target_age=controlled.target_age,
+        truth_mode=controlled.truth_mode.value,
+        cultural_context=controlled.cultural_context.value,
+        utility_mode=controlled.utility_mode.value,
         audience_language="ru",
         result_language="ru",
         current_config=current_config,
     )
     lowered = text.casefold()
-    if _FAIRY_TALE_RE.search(text):
-        normalized.truth_mode = "FAIRY_TALE"
-    elif _MYTH_RE.search(text):
-        normalized.truth_mode = "MYTH"
-    elif _TRUTH_RE.search(text):
-        normalized.truth_mode = "TRUTH"
-    if any(term in lowered for term in _TEACHING_TERMS):
-        normalized.utility_mode = "TEACHING"
-    if any(term in lowered for term in _ROAD_TERMS):
-        normalized.utility_topic = "ROAD_SAFETY"
-        normalized.utility_mode = normalized.utility_mode or "TEACHING"
-    if "рук" in lowered and any(term in lowered for term in _HAND_WASHING_TERMS):
-        normalized.utility_topic = "HAND_WASHING_AFTER_WALK"
-        normalized.utility_mode = "TEACHING"
-    if "незнаком" in lowered and "конфет" in lowered:
-        normalized.utility_topic = "STRANGERS_AND_CANDY"
-        normalized.utility_mode = "TEACHING"
-    meaningful_text = _meaningful_text(lowered)
-    if normalized.utility_mode is None and meaningful_text:
-        normalized.utility_mode = "NARRATIVE"
-    if normalized.truth_mode is None and meaningful_text:
-        normalized.truth_mode = "TRUTH"
-    age = _AGE_RE.search(text)
-    if age:
-        normalized.target_age = age.group(1)
-    elif meaningful_text and (normalized.truth_mode or normalized.utility_mode):
-        normalized.target_age = "5"
+    if normalized.utility_mode == "TEACHING":
+        if any(term in lowered for term in _ROAD_TERMS):
+            normalized.utility_topic = "ROAD_SAFETY"
+        if "рук" in lowered and any(term in lowered for term in _HAND_WASHING_TERMS):
+            normalized.utility_topic = "HAND_WASHING_AFTER_WALK"
+        if "незнаком" in lowered and "конфет" in lowered:
+            normalized.utility_topic = "STRANGERS_AND_CANDY"
     if _FOX_RE.search(text):
         _add_subject(
             normalized,
@@ -686,9 +673,6 @@ def _extract_normalized_request(
     _apply_style_resolution(normalized, text, registry)
     if "русск" in lowered and "народ" in lowered and not normalized.substyle:
         normalized.substyle = "RUSSIAN_FOLK_TALE"
-    if normalized.truth_mode == "MYTH" and ("мягк" in lowered or _SUN_RE.search(text) or _WIND_RE.search(text)):
-        if not normalized.substyle:
-            normalized.substyle = "MYTH_SOFT_BASE"
     if "зимой" in lowered or "зима" in lowered:
         normalized.setting.season = "winter"
         normalized.hard_details.append("winter")
@@ -910,10 +894,7 @@ def _hint(
 
 def _meaningful_request(request: NormalizedRequest) -> bool:
     return bool(
-        request.truth_mode
-        or request.utility_mode
-        or request.target_age
-        or request.main_subject
+        request.main_subject
         or request.subjects
         or request.hard_details
     )

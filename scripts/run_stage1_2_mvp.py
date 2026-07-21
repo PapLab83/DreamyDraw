@@ -13,13 +13,18 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.core.stage1_2_orchestrator import Stage1_2Orchestrator
 from src.core.factory import build_stage2_text_executor, validate_llm_provider_config
+from src.config.settings import settings
 from src.storage.json_storage import JSONStorage
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run DreamyDraw Stage 1-2 MVP text flow.")
     parser.add_argument("request", nargs="?", default=None, help="Raw text request.")
-    parser.add_argument("--count", type=int, default=None, help="Requested approved text count.")
+    parser.add_argument("--count", type=int, default=settings.DEFAULT_COUNT, help="Requested approved text count (1-10).")
+    parser.add_argument("--age", choices=("3", "5"), default=settings.DEFAULT_TARGET_AGE, help="Target child age.")
+    parser.add_argument("--truth-mode", choices=("TRUTH", "FAIRY_TALE"), default=settings.DEFAULT_TRUTH_MODE)
+    parser.add_argument("--cultural-context", choices=("RUSSIAN_FOLK",), default=settings.DEFAULT_CULTURAL_CONTEXT)
+    parser.add_argument("--utility-mode", choices=("NARRATIVE", "TEACHING"), default=settings.DEFAULT_UTILITY_MODE)
     parser.add_argument("--session", default=None, help="Existing session id to resume.")
     parser.add_argument("--resume", default=None, help="Clarification response for an existing session.")
     parser.add_argument("--output-dir", default=os.environ.get("DREAMYDRAW_STAGE1_2_OUTPUT_DIR", "output/stage1_2_mvp"))
@@ -28,6 +33,8 @@ def main() -> int:
     parser.add_argument("--model", default=None, help="LLM model for --executor llm. Defaults to LLM_MODEL.")
     parser.add_argument("--debug-llm", action="store_true", help="Write raw LLM prompt/response debug artifacts.")
     args = parser.parse_args()
+    if not 1 <= args.count <= settings.MAX_COUNT:
+        parser.error(f"--count must be between 1 and {settings.MAX_COUNT}")
     debug_llm = args.debug_llm or _env_flag("DREAMYDRAW_LLM_DEBUG")
 
     if args.executor == "llm":
@@ -47,6 +54,7 @@ def main() -> int:
         storage=storage,
         text_executor=text_executor,
         prompts_root=Path(__file__).resolve().parents[1] / "prompts",
+        cultural_context=args.cultural_context,
     )
 
     if args.session:
@@ -55,7 +63,13 @@ def main() -> int:
     else:
         if args.request is None:
             parser.error("request text or --session is required")
-        config = {"count": args.count} if args.count is not None else {}
+        config = {
+            "output_count": args.count,
+            "target_age": args.age,
+            "truth_mode": args.truth_mode,
+            "cultural_context": args.cultural_context,
+            "utility_mode": args.utility_mode,
+        }
         session = orchestrator.start_session(args.request, current_config=config)
         session_id = session.session_id
         resume_value = None

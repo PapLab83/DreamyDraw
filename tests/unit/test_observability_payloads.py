@@ -33,11 +33,14 @@ def test_root_trace_metadata_includes_compact_session_summary():
         "truth_mode": "FAIRY_TALE",
         "utility_mode": "TEACHING",
         "target_age": "5",
+        "cultural_context": "RUSSIAN_FOLK",
         "main_subject": "fox",
         "output_count": 2,
     }
     assert metadata["approved_count"] == 0
     assert metadata["candidate_count"] == 0
+    assert metadata["cultural_context"] == "RUSSIAN_FOLK"
+    assert metadata["prompt_root"] == "/tmp/prompts/cultural_contexts/russian_folk"
 
 
 def test_root_trace_raw_input_summary_is_bounded():
@@ -120,6 +123,8 @@ def test_prompt_metadata_includes_context_hashes_sources_and_body_policy():
     assert metadata["prompt"]["stage_context_hash"] == "validator-hash"
     assert metadata["prompt"]["source_paths"] == ["prompts/truth_modes/FAIRY_TALE/BASE.md"]
     assert metadata["prompt"]["body_policy"] == "lazy_not_persisted"
+    assert metadata["prompt"]["cultural_context"] == "RUSSIAN_FOLK"
+    assert metadata["prompt"]["prompt_root"] == "/tmp/prompts/cultural_contexts/russian_folk"
 
 
 def test_redaction_removes_forbidden_keys_and_strings():
@@ -231,6 +236,8 @@ def _session(raw_text: str | None = None) -> SessionState:
         Subject(id="fox", label="лиса", type="animal", role="main", is_character=True)
     ]
     session.prompt_context.snapshot_hash = "prompt-context-hash"
+    session.prompt_context.cultural_context = "RUSSIAN_FOLK"
+    session.prompt_context.prompt_root = "/tmp/prompts/cultural_contexts/russian_folk"
     session.prompt_context.resolved_layers = [
         PromptLayerRef(
             id="FAIRY_TALE_BASE",

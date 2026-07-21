@@ -13,8 +13,7 @@ from src.models.schemas import (
     Subject,
 )
 
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
-
+PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts" / "cultural_contexts" / "russian_folk"
 
 def test_generator_context_uses_expected_layer_order_and_static_entry():
     composer = PromptComposer(PromptRegistry.load(PROMPTS_ROOT))
@@ -271,6 +270,7 @@ def test_refiner_context_includes_canonical_immutable_fields_and_snapshot():
         "utility_mode",
         "utility_topic",
         "target_age",
+        "cultural_context",
         "audience_language",
         "result_language",
         "main_subject",
@@ -287,6 +287,7 @@ def test_refiner_context_includes_canonical_immutable_fields_and_snapshot():
     assert summary["immutable_snapshot"]["utility_mode"] == "TEACHING"
     assert summary["immutable_snapshot"]["utility_topic"] == "ROAD_SAFETY"
     assert summary["immutable_snapshot"]["target_age"] == "5"
+    assert summary["immutable_snapshot"]["cultural_context"] == "RUSSIAN_FOLK"
     assert summary["immutable_snapshot"]["main_subject"] == "лиса"
     assert summary["immutable_snapshot"]["required_subjects"] == ["fox"]
     assert summary["immutable_snapshot"]["hard_details"] == [
