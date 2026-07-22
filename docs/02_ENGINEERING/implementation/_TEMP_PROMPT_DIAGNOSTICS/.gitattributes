@@ -1,0 +1,2 @@
+# Exact runtime dumps may preserve source-body trailing whitespace byte-for-byte.
+*.md -whitespace
